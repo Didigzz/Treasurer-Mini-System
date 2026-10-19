@@ -1,0 +1,21 @@
+{
+  "name": "@my-better-t-app/api",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@my-better-t-app/db": "workspace:*",
+    "@trpc/client": "catalog:",
+    "@trpc/server": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@my-better-t-app/config": "workspace:*",
+    "typescript": "^6.0.3"
+  }
+}
