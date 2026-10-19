@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "my-better-t-app",
+    "name": "Boarding House Treasurer",
     "slug": "my-better-t-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,6 +19,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "allowBackup": false,
       "package": "com.anonymous.mybettertapp"
     },
     "web": {
