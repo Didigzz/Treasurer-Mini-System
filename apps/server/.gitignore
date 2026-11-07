@@ -3,6 +3,11 @@ dist/
 /build
 /out/
 
+# compiled sidecar
+/server
+/server.exe
+/index.js.map
+
 # dev
 .yarn/
 !.yarn/patches

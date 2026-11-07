@@ -23,7 +23,7 @@ import {
   CURRENCY_OPTIONS,
   formatDateTime,
   formatMoney,
-} from "@/src/features/treasurer/money";
+} from "@my-better-t-app/api/treasurer/money";
 import {
   useAppSettings,
   useBillTypes,

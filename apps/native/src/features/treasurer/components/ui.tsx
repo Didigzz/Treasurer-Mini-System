@@ -12,8 +12,8 @@ import {
 
 import { Container } from "@/components/container";
 
-import { formatMoney, formatPeriod, shiftPeriod } from "../money";
-import type { BillStatus, ShareFilter, ShareStatus } from "../types";
+import { formatMoney, formatPeriod, shiftPeriod } from "@my-better-t-app/api/treasurer/money";
+import type { BillStatus, ShareFilter, ShareStatus } from "@my-better-t-app/api/treasurer/types";
 
 export function Screen({
   children,

@@ -8,7 +8,7 @@ import { Button, Surface, cn, useThemeColor } from "heroui-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
-import { equalSplit, validateCustomShares } from "@/src/features/treasurer/calculations";
+import { equalSplit, validateCustomShares } from "@my-better-t-app/api/treasurer/calculations";
 import {
   AppDialog,
   AppInput,
@@ -29,7 +29,7 @@ import {
   minorToInputValue,
   parseMoneyToMinor,
   toIsoDate,
-} from "@/src/features/treasurer/money";
+} from "@my-better-t-app/api/treasurer/money";
 import {
   checkDuplicateBills,
   useActiveBoarders,
@@ -40,7 +40,7 @@ import {
   useUpdateBill,
   useUpdateBillMeta,
 } from "@/src/features/treasurer/queries";
-import type { SplitResult } from "@/src/features/treasurer/types";
+import type { SplitResult } from "@my-better-t-app/api/treasurer/types";
 
 type SplitMethod = "equal" | "custom";
 

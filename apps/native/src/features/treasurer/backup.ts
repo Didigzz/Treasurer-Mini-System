@@ -13,9 +13,9 @@ import { z } from "zod";
 
 import { db, withTransaction } from "@/src/db";
 import { setLastBackupAt } from "./repository";
-import { MAX_AMOUNT_MINOR } from "./money";
-import { recomputePaymentChanges } from "./calculations";
-import type { PaymentRecord } from "./types";
+import { MAX_AMOUNT_MINOR } from "@my-better-t-app/api/treasurer/money";
+import { recomputePaymentChanges } from "@my-better-t-app/api/treasurer/calculations";
+import type { PaymentRecord } from "@my-better-t-app/api/treasurer/types";
 
 const MAX_BACKUP_BYTES = 10 * 1024 * 1024;
 

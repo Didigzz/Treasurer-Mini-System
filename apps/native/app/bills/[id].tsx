@@ -4,7 +4,7 @@ import { Button, Surface, useThemeColor } from "heroui-native";
 import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 
-import { matchesShareFilter } from "@/src/features/treasurer/calculations";
+import { matchesShareFilter } from "@my-better-t-app/api/treasurer/calculations";
 import { PaymentRow, ShareRow } from "@/src/features/treasurer/components/rows";
 import {
   AppDialog,
@@ -27,7 +27,7 @@ import {
   formatMoney,
   formatPeriod,
   isOverdue,
-} from "@/src/features/treasurer/money";
+} from "@my-better-t-app/api/treasurer/money";
 import {
   useAppSettings,
   useArchiveBill,
@@ -35,7 +35,7 @@ import {
   useMarkChangeReturned,
   useVoidPayment,
 } from "@/src/features/treasurer/queries";
-import type { ShareFilter } from "@/src/features/treasurer/types";
+import type { ShareFilter } from "@my-better-t-app/api/treasurer/types";
 
 export default function BillDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

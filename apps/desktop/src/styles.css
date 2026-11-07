@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #f5f6f8;
+  --color-panel: #ffffff;
+  --color-line: #e3e6eb;
+  --color-ink: #141b26;
+  --color-muted: #67707f;
+  --color-accent: #0f766e;
+  --color-accent-hover: #115e59;
+  --color-accent-soft: #d9f3ef;
+  --color-accent-ink: #ffffff;
+  --color-danger: #b42318;
+  --color-danger-soft: #fee4e2;
+  --color-success: #067647;
+  --color-success-soft: #dcfae6;
+  --color-warning: #b54708;
+  --color-warning-soft: #fef0c7;
+  --font-sans: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+    font-family: var(--font-sans);
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    @apply outline-none;
+  }
+
+  :focus-visible {
+    @apply ring-2 ring-accent/40 ring-offset-1 ring-offset-canvas;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-line;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-panel;
+  }
+
+  .label {
+    @apply text-xs font-semibold tracking-wide text-muted uppercase;
+  }
+
+  .field {
+    @apply h-10 w-full rounded-xl border border-line bg-panel px-3 text-sm text-ink placeholder:text-muted/70 disabled:cursor-not-allowed disabled:bg-canvas;
+  }
+
+  .field-area {
+    @apply min-h-24 w-full resize-y rounded-xl border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-muted/70;
+  }
+}

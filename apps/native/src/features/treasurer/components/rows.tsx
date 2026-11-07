@@ -2,8 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { Button, Chip, Surface, useThemeColor } from "heroui-native";
 import { Pressable, Text, View } from "react-native";
 
-import { formatDateOnly, formatDateTime, formatMoney, formatPeriod, isOverdue } from "../money";
-import type { PaymentWithComputedChange, ShareWithState } from "../types";
+import { formatDateOnly, formatDateTime, formatMoney, formatPeriod, isOverdue } from "@my-better-t-app/api/treasurer/money";
+import type { PaymentWithComputedChange, ShareWithState } from "@my-better-t-app/api/treasurer/types";
 import type { BillWithDetails } from "../repository";
 import {
   BillStatusBadge,

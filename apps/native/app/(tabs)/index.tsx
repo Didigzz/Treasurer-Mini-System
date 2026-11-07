@@ -6,7 +6,7 @@ import { Pressable, Text, View } from "react-native";
 
 import {
   matchesBoarderFilter,
-} from "@/src/features/treasurer/calculations";
+} from "@my-better-t-app/api/treasurer/calculations";
 import { BillCard, BoarderBalanceRow } from "@/src/features/treasurer/components/rows";
 import {
   EmptyState,
@@ -18,9 +18,9 @@ import {
   SectionHeader,
   SummaryCard,
 } from "@/src/features/treasurer/components/ui";
-import { currentPeriod, formatMoney, formatPeriod } from "@/src/features/treasurer/money";
+import { currentPeriod, formatMoney, formatPeriod } from "@my-better-t-app/api/treasurer/money";
 import { useAppSettings, useDashboard } from "@/src/features/treasurer/queries";
-import type { ShareFilter } from "@/src/features/treasurer/types";
+import type { ShareFilter } from "@my-better-t-app/api/treasurer/types";
 
 export default function DashboardScreen() {
   const [period, setPeriod] = useState(() => currentPeriod());

@@ -18,7 +18,7 @@ import {
   SummaryCard,
 } from "@/src/features/treasurer/components/ui";
 import { PaymentRow } from "@/src/features/treasurer/components/rows";
-import { formatMoney, formatPeriod } from "@/src/features/treasurer/money";
+import { formatMoney, formatPeriod } from "@my-better-t-app/api/treasurer/money";
 import {
   useAppSettings,
   useArchiveBoarder,

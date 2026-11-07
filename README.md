@@ -8,8 +8,9 @@ The treasurer can keep a boarder list, manage bill types, split monthly shared b
 equally or with custom amounts, record payments and change to return, follow balances per
 month and per boarder, and export/restore everything as a JSON file.
 
-All records live **only on the phone** in an app-private SQLite database. The app does not
-use accounts, cloud sync, analytics, or the bundled tRPC server.
+All records live **only on the device** in a local SQLite database. The Expo app reads
+SQLite directly; the Windows desktop app runs the bundled Hono/tRPC server against a
+libsql file in its app-data folder. Neither app uses accounts, cloud sync, or analytics.
 
 See [boarding-house-treasurer-spec.md](boarding-house-treasurer-spec.md) for the full
 product and implementation spec.
@@ -42,6 +43,30 @@ Install dependencies from the repository root:
 bun install
 ```
 
+### Desktop app (Windows)
+
+The desktop app uses Tauri v2 with a React/Vite frontend and ships the Bun server as a
+sidecar. Prerequisites: Rust (MSVC toolchain), Visual Studio C++ build tools, and
+WebView2 (installed by default on Windows 10/11).
+
+```bash
+bun run tauri:dev     # builds the sidecar, starts Vite, opens the desktop window
+bun run tauri:build   # release build + installer under apps/desktop/src-tauri/target
+```
+
+To iterate on the UI in a normal browser, run the API and Vite separately:
+
+```bash
+bun run dev:server    # http://127.0.0.1:3000
+bun run dev:desktop   # Vite only → http://localhost:1420
+```
+
+The desktop database lives at `%APPDATA%\com.boardinghouse.treasurer\treasurer.db`.
+Use Settings → Export backup before moving computers; import the same JSON on the other
+machine. Moving between Expo and desktop is a manual backup export/import.
+
+### Expo app
+
 Start the Expo development server:
 
 ```bash
@@ -53,6 +78,41 @@ Then press `a` for Android or `i` for iOS, or run `bun run android` / `bun run i
 development build; see
 [Expo development builds](https://docs.expo.dev/develop/development-builds/introduction/)
 for device setup.
+
+### Running on an Android phone
+
+Every native module the app uses is bundled in **Expo Go** for SDK 58, so the fastest
+way to run it on a phone is Expo Go with no Android build at all:
+
+1. Install **Expo Go** from the Play Store (it must support SDK 58).
+2. Put the phone and this computer on the same Wi-Fi network.
+3. From the repository root, run `bun run dev:native` and leave it running. The terminal
+   prints a QR code (the URL looks like `exp://192.168.x.x:8081`).
+4. Scan the QR code with Expo Go (Android 11+ can scan it from the camera/quick settings;
+   otherwise use *Scan QR code* inside Expo Go). The app bundles once, then opens.
+
+The treasurer data is stored on the phone in the app's private SQLite database, so the
+phone works offline after the first load. Stop the dev server and reopen Expo Go from the
+recent list while the server is down and it will fail to load — that is expected for a
+development build; it does not affect the stored records.
+
+If the phone cannot reach `192.168.x.x:8081`, check that Windows Firewall allows Node
+(private networks), that both devices are on the same subnet, and that the Wi-Fi network
+does not use client isolation (guest networks usually do).
+
+To run a **standalone app** that no longer needs the dev server, build an installable APK
+instead (this machine already has JDK 17 and the Android SDK, so no EAS account is
+needed):
+
+```bash
+cd apps/native
+bunx expo prebuild --platform android   # generates the native android/ project
+cd android && ./gradlew assembleRelease # APK in android/app/build/outputs/apk/release/
+```
+
+Or, with a USB-connected phone and developer mode enabled, `bun run android` from
+`apps/native` builds and installs a debug development build in one step. The generated
+`android/` and `ios/` folders are gitignored; they are build output, not source.
 
 ### Local database and migrations
 
@@ -73,11 +133,14 @@ bun run check-types
 
 ### Tests
 
-Pure money and calculation logic is tested with Bun's built-in test runner:
+Shared treasurer logic and the tRPC routers are tested with Bun's built-in test runner:
 
 ```bash
-bun test apps/native/src/features/treasurer
+bun test --cwd packages/api
 ```
+
+This covers money parsing, equal/custom splits, payment and change calculations, and
+integration tests against an in-memory libsql database.
 
 ## Project Structure
 
@@ -91,12 +154,16 @@ apps/
       payments/new.tsx     # Record payment modal
       bill-types.tsx       # Bill type management
     src/db/                # SQLite singleton, migrations gate, seed
-    src/features/treasurer # Domain logic, repository, queries, backup, components
+    src/features/treasurer # Native repository, queries, components
     drizzle/               # Generated SQL migrations + entrypoint
-  server/                  # Hono + tRPC API (not used by the treasurer app)
+  desktop/                 # Tauri v2 + React/Vite desktop app
+    src/                   # Routes, screens, tRPC hooks, UI primitives
+    src-tauri/             # Rust shell, sidecar config, icons, installer
+    scripts/               # build-sidecar.ts (Bun compile + triple suffix)
+  server/                  # Hono + tRPC API used by the desktop sidecar
 packages/
-  api/                     # tRPC router
-  db/                      # Drizzle schema shared by server and native
+  api/                     # Shared treasurer domain + tRPC routers + tests
+  db/                      # Drizzle schema, startup migrator, libsql client
   config/                  # Shared TypeScript configuration
 ```
 
@@ -104,6 +171,9 @@ packages/
 
 - `bun run dev`: Start all applications in development mode
 - `bun run dev:native`: Start the Expo development server
+- `bun run dev:desktop`: Start the desktop Vite dev server in a browser
+- `bun run tauri:dev`: Build the sidecar and open the desktop app in Tauri
+- `bun run tauri:build`: Build the Windows release app and installer
 - `bun run dev:server`: Start only the Hono server
 - `bun run check-types`: Check TypeScript types across all apps
 - `bun run build`: Build all applications
@@ -123,9 +193,11 @@ Import the generated `ENV` accessor in application code. Shared database and aut
 receive configuration or initialized clients from the application. See
 [Varlock's monorepo guide](https://varlock.dev/guides/monorepos/).
 
-Bun's automatic env loading is disabled in `bunfig.toml`; the framework integration or
-server bootstrap loads Varlock. Node deployments must include Varlock and its dependencies
-alongside the app schema.
+The server reads `process.env` directly at startup (`apps/server/src/env.server.ts`) and
+falls back to development defaults. This avoids Varlock's runtime auto-loader, which
+crashes Bun 1.3.x on Windows; Varlock is still used for `.env.schema` and codegen. The
+packaged desktop sidecar receives `PORT`, `DATABASE_URL`, and `CORS_ORIGIN` from the Tauri
+shell, so no env file is needed in the installer.
 
 Run standalone Node/Bun tools that use Varlock from the owning app directory so they load
 that app's schema and env files. `env:generate` only generates TypeScript files; it does

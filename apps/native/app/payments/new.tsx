@@ -7,7 +7,7 @@ import { Button, Surface, useThemeColor } from "heroui-native";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { previewPayment } from "@/src/features/treasurer/calculations";
+import { previewPayment } from "@my-better-t-app/api/treasurer/calculations";
 import {
   AppInput,
   EmptyState,
@@ -24,7 +24,7 @@ import {
   formatPeriod,
   minorToInputValue,
   parseMoneyToMinor,
-} from "@/src/features/treasurer/money";
+} from "@my-better-t-app/api/treasurer/money";
 import {
   useAppSettings,
   usePaymentContext,

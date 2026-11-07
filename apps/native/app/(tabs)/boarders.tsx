@@ -13,7 +13,7 @@ import {
   LoadingBlock,
   Screen,
 } from "@/src/features/treasurer/components/ui";
-import { formatMoney } from "@/src/features/treasurer/money";
+import { formatMoney } from "@my-better-t-app/api/treasurer/money";
 import {
   useAppSettings,
   useBoarders,

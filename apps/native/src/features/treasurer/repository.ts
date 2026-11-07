@@ -19,7 +19,7 @@ import {
   computeShareState,
   recomputePaymentChanges,
   shareStatusLabel,
-} from "./calculations";
+} from "@my-better-t-app/api/treasurer/calculations";
 import type {
   BillStatus,
   BoarderPeriodSummary,
@@ -28,7 +28,7 @@ import type {
   ShareState,
   ShareWithState,
   SplitResult,
-} from "./types";
+} from "@my-better-t-app/api/treasurer/types";
 
 export interface AppSettings {
   currencyCode: string;
