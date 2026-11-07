@@ -54,11 +54,10 @@ bun run tauri:dev     # builds the sidecar, starts Vite, opens the desktop windo
 bun run tauri:build   # release build + installer under apps/desktop/src-tauri/target
 ```
 
-To iterate on the UI in a normal browser, run the API and Vite separately:
+To iterate on the UI in a normal browser, run the desktop dev server (Vite plus the API):
 
 ```bash
-bun run dev:server    # http://127.0.0.1:3000
-bun run dev:desktop   # Vite only → http://localhost:1420
+bun run dev:desktop   # Vite + API → http://localhost:1420
 ```
 
 The desktop database lives at `%APPDATA%\com.boardinghouse.treasurer\treasurer.db`.
@@ -171,7 +170,7 @@ packages/
 
 - `bun run dev`: Start all applications in development mode
 - `bun run dev:native`: Start the Expo development server
-- `bun run dev:desktop`: Start the desktop Vite dev server in a browser
+- `bun run dev:desktop`: Start the desktop app in a browser (Vite dev server plus the Hono API)
 - `bun run tauri:dev`: Build the sidecar and open the desktop app in Tauri
 - `bun run tauri:build`: Build the Windows release app and installer
 - `bun run dev:server`: Start only the Hono server

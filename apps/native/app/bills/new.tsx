@@ -8,7 +8,7 @@ import { Button, Surface, cn, useThemeColor } from "heroui-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
-import { equalSplit, validateCustomShares } from "@my-better-t-app/api/treasurer/calculations";
+import { equalSplit, splitWithOverrides } from "@my-better-t-app/api/treasurer/calculations";
 import {
   AppDialog,
   AppInput,
@@ -27,6 +27,7 @@ import {
   formatPeriod,
   isoDateToDate,
   minorToInputValue,
+  parseAmountInput,
   parseMoneyToMinor,
   toIsoDate,
 } from "@my-better-t-app/api/treasurer/money";
@@ -43,6 +44,8 @@ import {
 import type { SplitResult } from "@my-better-t-app/api/treasurer/types";
 
 type SplitMethod = "equal" | "custom";
+
+const WHOLE_PESO_MESSAGE = "Whole pesos only. Turn on centavos in Settings to use decimals.";
 
 interface PickerBoarder {
   id: string;
@@ -90,6 +93,7 @@ export default function BillFormScreen() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [method, setMethod] = useState<SplitMethod>("equal");
   const [customInputs, setCustomInputs] = useState<Record<string, string>>({});
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<BillRow[] | null>(null);
@@ -141,15 +145,27 @@ export default function BillFormScreen() {
       setDueDate(currentBill.dueDate);
       setNote(currentBill.note ?? "");
       setSelectedIds(detail.data.shares.map((share) => share.boarderId));
-      setMethod("custom");
-      setCustomInputs(
-        Object.fromEntries(
-          detail.data.shares.map((share) => [
-            share.boarderId,
-            minorToInputValue(share.amountDueMinor),
-          ]),
-        ),
-      );
+
+      const savedAmounts = detail.data.shares.map((share) => share.amountDueMinor);
+      const evenlySplit = savedAmounts.every((amount) => amount === savedAmounts[0]);
+
+      if (evenlySplit) {
+        setMethod("equal");
+      } else {
+        // The split method is not stored, so an uneven bill opens with every row
+        // pinned to its saved amount and can be re-saved unchanged.
+        setMethod("custom");
+        setPinnedIds(detail.data.shares.map((share) => share.boarderId));
+        setCustomInputs(
+          Object.fromEntries(
+            detail.data.shares.map((share) => [
+              share.boarderId,
+              minorToInputValue(share.amountDueMinor),
+            ]),
+          ),
+        );
+      }
+
       initialized.current = true;
       return;
     }
@@ -160,7 +176,9 @@ export default function BillFormScreen() {
     }
   }, [editId, detail.data, activeBoarders.data, activeBoarders.isLoading]);
 
-  const parsedTotal = parseMoneyToMinor(totalInput);
+  const allowCentavos = settings.data?.allowCentavos ?? true;
+
+  const parsedTotal = parseAmountInput(totalInput, { allowCentavos });
   const selectedBoarders = selectedIds
     .map((id) => pickerBoarders.find((boarder) => boarder.id === id))
     .filter((boarder): boarder is PickerBoarder => Boolean(boarder));
@@ -174,38 +192,50 @@ export default function BillFormScreen() {
         name: boarder.name,
         createdAt: boarder.createdAt,
       })),
+      { allowCentavos },
     );
-  }, [parsedTotal, selectedBoarders]);
+  }, [parsedTotal, selectedBoarders, allowCentavos]);
 
-  const customShares = useMemo(() => {
-    const shares: Array<SplitResult & { valid: boolean }> = selectedBoarders.map((boarder) => {
-      const amount = parseMoneyToMinor(customInputs[boarder.id] ?? "");
-      return {
-        boarderId: boarder.id,
-        amountMinor: amount ?? 0,
-        valid: amount !== null && amount > 0,
-      };
-    });
-    return shares;
-  }, [customInputs, selectedBoarders]);
+  const pinnedBoarders = selectedBoarders.filter((boarder) => pinnedIds.includes(boarder.id));
 
-  const customAssigned = customShares.reduce((total, share) => total + share.amountMinor, 0);
-  const customDifference = parsedTotal === null ? 0 : parsedTotal - customAssigned;
-  const customValidation =
-    parsedTotal === null
-      ? { valid: false as const, error: "Enter a valid bill total.", differenceMinor: 0 }
-      : validateCustomShares(
-          parsedTotal,
-          customShares.map(({ boarderId, amountMinor }) => ({ boarderId, amountMinor })),
-        );
+  const overrides = new Map<string, number>();
+  let invalidPin: { name: string; wholePesosOnly: boolean } | null = null;
+
+  for (const boarder of pinnedBoarders) {
+    const raw = customInputs[boarder.id] ?? "";
+    const amount = parseAmountInput(raw, { allowCentavos });
+
+    if (amount === null) {
+      invalidPin = { name: boarder.name, wholePesosOnly: parseMoneyToMinor(raw) !== null };
+      break;
+    }
+
+    overrides.set(boarder.id, amount);
+  }
+
+  const customResult =
+    invalidPin || parsedTotal === null
+      ? null
+      : pinnedBoarders.length === 0
+        ? equalResult
+        : splitWithOverrides(
+            parsedTotal,
+            selectedBoarders.map((boarder) => ({
+              boarderId: boarder.id,
+              name: boarder.name,
+              createdAt: boarder.createdAt,
+            })),
+            overrides,
+            { allowCentavos },
+          );
 
   const sharesForSave: SplitResult[] | null =
     method === "equal"
       ? equalResult && !("error" in equalResult)
         ? equalResult.shares
         : null
-      : customValidation.valid
-        ? customShares.map(({ boarderId, amountMinor }) => ({ boarderId, amountMinor }))
+      : customResult && !("error" in customResult)
+        ? customResult.shares
         : null;
 
   const splitError =
@@ -217,9 +247,19 @@ export default function BillFormScreen() {
           ? equalResult && "error" in equalResult
             ? equalResult.error
             : null
-          : customValidation.valid
-            ? null
-            : customValidation.error;
+          : invalidPin
+            ? invalidPin.wholePesosOnly
+              ? WHOLE_PESO_MESSAGE
+              : `Enter a valid amount for ${invalidPin.name}.`
+            : customResult && "error" in customResult
+              ? customResult.overByMinor !== undefined
+                ? `Custom amounts are ${formatMoney(customResult.overByMinor, currency)} over the bill total.`
+                : customResult.error
+              : null;
+
+  const customAssignedMinor = [...overrides.values()].reduce((total, value) => total + value, 0);
+  const leftoverMinor = parsedTotal === null ? 0 : parsedTotal - customAssignedMinor;
+  const poolCount = selectedBoarders.length - pinnedBoarders.length;
 
   function toggleBoarder(id: string) {
     setSelectedIds((current) => {
@@ -230,14 +270,27 @@ export default function BillFormScreen() {
     });
   }
 
-  function chooseMethod(next: SplitMethod) {
-    if (next === "custom" && method === "equal" && equalResult && !("error" in equalResult)) {
-      setCustomInputs(
-        Object.fromEntries(
-          equalResult.shares.map((share) => [share.boarderId, minorToInputValue(share.amountMinor)]),
-        ),
-      );
+  function togglePinned(id: string) {
+    if (pinnedIds.includes(id)) {
+      setPinnedIds((current) => current.filter((value) => value !== id));
+      return;
     }
+
+    const preview =
+      customResult && !("error" in customResult)
+        ? customResult.shares.find((share) => share.boarderId === id)
+        : equalResult && !("error" in equalResult)
+          ? equalResult.shares.find((share) => share.boarderId === id)
+          : undefined;
+
+    setPinnedIds((current) => [...current, id]);
+    setCustomInputs((current) =>
+      current[id] || !preview ? current : { ...current, [id]: minorToInputValue(preview.amountMinor) },
+    );
+  }
+
+  function chooseMethod(next: SplitMethod) {
+    // Custom mode starts neutral: nothing is pinned until the treasurer says so.
     setMethod(next);
   }
 
@@ -535,7 +588,11 @@ export default function BillFormScreen() {
           <SectionHeader title="Amount and details" />
           <FormField
             label={`Total bill (${currency})`}
-            hint="Use a decimal point for centavos, e.g. 1234.50."
+            hint={
+              allowCentavos
+                ? "Use a decimal point for centavos, e.g. 1234.50."
+                : "Whole pesos only. Turn on centavos in Settings to use decimals."
+            }
             required
           >
             <AppInput
@@ -544,7 +601,7 @@ export default function BillFormScreen() {
                 setTotalInput(value);
                 if (formError) setFormError(null);
               }}
-              keyboardType="decimal-pad"
+              keyboardType={allowCentavos ? "decimal-pad" : "number-pad"}
               placeholder="0.00"
               maxLength={16}
             />
@@ -703,30 +760,82 @@ export default function BillFormScreen() {
               ) : null
             ) : (
               <>
-                {selectedBoarders.map((boarder) => (
-                  <View key={boarder.id} className="mb-3">
-                    <Text className="mb-1 text-sm text-foreground">{boarder.name}</Text>
-                    <AppInput
-                      value={customInputs[boarder.id] ?? ""}
-                      onChangeText={(value) =>
-                        setCustomInputs((current) => ({ ...current, [boarder.id]: value }))
-                      }
-                      keyboardType="decimal-pad"
-                      placeholder="0.00"
-                    />
-                  </View>
-                ))}
+                {pinnedIds.length === 0 ? (
+                  <Text className="mb-2 text-xs text-muted">
+                    Turn on Custom for any boarder to override their amount.
+                  </Text>
+                ) : null}
+                {selectedBoarders.map((boarder) => {
+                  const pinned = pinnedIds.includes(boarder.id);
+                  const computed =
+                    customResult && !("error" in customResult)
+                      ? customResult.shares.find((share) => share.boarderId === boarder.id)
+                      : undefined;
+                  const stale = pinned ? undefined : customInputs[boarder.id];
+
+                  return (
+                    <View key={boarder.id} className="mb-2 rounded-xl bg-surface p-3">
+                      <View className="flex-row items-center gap-2">
+                        <Text className="flex-1 text-sm text-foreground">{boarder.name}</Text>
+                        <Pressable
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: pinned }}
+                          accessibilityLabel={`Custom amount for ${boarder.name}`}
+                          className="min-h-11 flex-row items-center gap-1"
+                          onPress={() => togglePinned(boarder.id)}
+                        >
+                          <Ionicons
+                            name={pinned ? "checkbox" : "square-outline"}
+                            size={20}
+                            color={pinned ? accent : muted}
+                          />
+                          <Text className="text-xs font-medium text-muted">Custom</Text>
+                        </Pressable>
+                      </View>
+                      {pinned ? (
+                        <AppInput
+                          className="mt-2"
+                          value={customInputs[boarder.id] ?? ""}
+                          onChangeText={(value) =>
+                            setCustomInputs((current) => ({ ...current, [boarder.id]: value }))
+                          }
+                          keyboardType={allowCentavos ? "decimal-pad" : "number-pad"}
+                          placeholder="0.00"
+                        />
+                      ) : (
+                        <View className="mt-1 flex-row items-baseline justify-between gap-2">
+                          <Text className="flex-1 text-xs text-muted">
+                            Auto · split equally
+                            {stale ? ` · was ${stale}` : ""}
+                          </Text>
+                          <Text
+                            className="text-sm font-semibold text-foreground"
+                            style={{ fontVariant: ["tabular-nums"] }}
+                          >
+                            {computed ? formatMoney(computed.amountMinor, currency) : "—"}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
                 <View className="flex-row items-center justify-between border-t border-separator pt-2">
-                  <Text className="text-sm text-muted">Assigned</Text>
+                  <Text className="text-sm text-muted">Custom amounts</Text>
                   <Text className="text-sm font-semibold text-foreground">
-                    {formatMoney(customAssigned, currency)}
+                    {formatMoney(customAssignedMinor, currency)}
                   </Text>
                 </View>
-                {parsedTotal !== null && customDifference !== 0 ? (
-                  <Text className="mt-1 text-xs text-danger">
-                    {customDifference > 0
-                      ? `${formatMoney(customDifference, currency)} still unassigned.`
-                      : `${formatMoney(Math.abs(customDifference), currency)} over the bill total.`}
+                <View className="mt-1 flex-row items-center justify-between gap-2">
+                  <Text className="text-sm text-muted">Leftover</Text>
+                  <Text className="flex-1 text-right text-xs text-muted">
+                    {poolCount === 0
+                      ? "every boarder is custom"
+                      : `${formatMoney(Math.max(0, leftoverMinor), currency)} split equally among ${poolCount} ${poolCount === 1 ? "boarder" : "boarders"}`}
+                  </Text>
+                </View>
+                {customResult && !("error" in customResult) && customResult.rounded ? (
+                  <Text className="mt-1 text-xs text-muted">
+                    Rounded to whole pesos. Turn on centavos in Settings for exact division.
                   </Text>
                 ) : null}
               </>

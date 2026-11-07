@@ -48,6 +48,11 @@ export function useBillDetail(id: string | undefined) {
   });
 }
 
+export function useBillHistory() {
+  const trpc = useTRPC();
+  return useQuery(trpc.bills.history.queryOptions());
+}
+
 export function usePaymentContext(shareId: string | undefined) {
   const trpc = useTRPC();
   return useQuery({
@@ -103,11 +108,14 @@ export function useSettingsMutations() {
   const trpc = useTRPC();
   const invalidate = useInvalidateAll();
   const setCurrency = useMutation(trpc.settings.setCurrency.mutationOptions({ onSuccess: invalidate }));
+  const setAllowCentavos = useMutation(
+    trpc.settings.setAllowCentavos.mutationOptions({ onSuccess: invalidate }),
+  );
   const setLastBackupAt = useMutation(
     trpc.settings.setLastBackupAt.mutationOptions({ onSuccess: invalidate }),
   );
   const importBackup = useMutation(trpc.backup.import.mutationOptions({ onSuccess: invalidate }));
-  return { setCurrency, setLastBackupAt, importBackup };
+  return { setCurrency, setAllowCentavos, setLastBackupAt, importBackup };
 }
 
 export function useBackupQueries() {

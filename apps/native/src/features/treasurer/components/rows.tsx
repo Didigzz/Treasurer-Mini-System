@@ -152,13 +152,15 @@ export function ShareRow({
 
       <View className="mt-3 flex-row items-center justify-between gap-2">
         <Text className="text-xs text-muted">
-          {share.state.status === "paid"
-            ? "Covered"
-            : share.state.status === "partial"
-              ? "Partially paid"
-              : "No payments yet"}
+          {share.amountDueMinor === 0
+            ? "Nothing due"
+            : share.state.status === "paid"
+              ? "Covered"
+              : share.state.status === "partial"
+                ? "Partially paid"
+                : "No payments yet"}
         </Text>
-        {!readOnly ? (
+        {!readOnly && share.amountDueMinor > 0 ? (
           <Button
             size="sm"
             variant={share.state.balanceMinor > 0 ? "primary" : "secondary"}
@@ -322,5 +324,134 @@ export function BoarderBalanceRow({
         </View>
       </Surface>
     </Pressable>
+  );
+}
+
+export function HistoryBillRow({
+  item,
+  currency,
+  expanded,
+  onOpen,
+  onToggleExpanded,
+}: {
+  item: BillWithDetails;
+  currency: string;
+  expanded: boolean;
+  onOpen: () => void;
+  onToggleExpanded: () => void;
+}) {
+  const muted = useThemeColor("muted");
+  const overdue = isOverdue(item.bill.dueDate, item.summary.outstandingMinor > 0);
+  const tenantCount = item.shares.length;
+
+  return (
+    <Surface variant="secondary" className="mb-2 rounded-2xl p-3.5">
+      <View className="flex-row items-start gap-2">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${item.bill.billTypeNameSnapshot}, ${formatPeriod(
+            item.bill.periodYear,
+            item.bill.periodMonth,
+          )}, ${item.summary.paidShareCount} of ${item.summary.totalShareCount} paid`}
+          onPress={onOpen}
+          className="flex-1"
+        >
+          <View className="flex-row items-start justify-between gap-3">
+            <View className="flex-1">
+              <Text className="text-sm font-semibold text-foreground">
+                {item.bill.billTypeNameSnapshot}
+              </Text>
+              <Text className="mt-0.5 text-xs text-muted">
+                {formatPeriod(item.bill.periodYear, item.bill.periodMonth)}
+              </Text>
+            </View>
+            <View className="items-end gap-1">
+              <BillStatusBadge status={item.summary.status} />
+              <MoneyText minor={item.bill.totalMinor} currency={currency} size="sm" />
+            </View>
+          </View>
+
+          <View className="mt-2 flex-row flex-wrap items-center gap-2">
+            <Text className="text-xs text-muted">
+              {tenantCount} {tenantCount === 1 ? "tenant" : "tenants"} •{" "}
+              {item.summary.paidShareCount} of {item.summary.totalShareCount} paid
+            </Text>
+            {overdue ? (
+              <StatusBadge label="Overdue" tone="danger" icon="calendar-outline" />
+            ) : null}
+            {item.summary.needsReview ? (
+              <StatusBadge label="Review change" tone="warning" icon="alert-circle-outline" />
+            ) : null}
+          </View>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          accessibilityLabel={`${expanded ? "Hide" : "Show"} tenants on ${
+            item.bill.billTypeNameSnapshot
+          }`}
+          onPress={onToggleExpanded}
+          className="h-11 w-11 items-center justify-center rounded-full"
+        >
+          <Ionicons
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={18}
+            color={muted}
+          />
+        </Pressable>
+      </View>
+
+      {expanded ? (
+        <View className="mt-3 border-t border-separator pt-3">
+          <Text className="text-xs font-medium text-muted">
+            Tenants ({tenantCount}) · snapshot names
+          </Text>
+          {item.shares.map((share) => (
+            <View
+              key={share.id}
+              className="mt-2 flex-row items-start justify-between gap-2"
+            >
+              <View className="flex-1">
+                <View className="flex-row flex-wrap items-center gap-1.5">
+                  <ShareStatusBadge status={share.state.status} />
+                  <Text className="text-sm text-foreground">
+                    {share.boarderNameSnapshot}
+                  </Text>
+                  {share.boarderArchived ? (
+                    <Chip size="sm" variant="secondary">
+                      <Chip.Label>Archived</Chip.Label>
+                    </Chip>
+                  ) : null}
+                  {share.amountDueMinor === 0 ? (
+                    <Chip size="sm" variant="secondary">
+                      <Chip.Label>Nothing due</Chip.Label>
+                    </Chip>
+                  ) : null}
+                </View>
+                <Text className="mt-0.5 text-xs text-muted">
+                  Due {formatMoney(share.amountDueMinor, currency)} • Paid{" "}
+                  {formatMoney(share.state.paidMinor, currency)}
+                  {share.state.changeOutstandingMinor > 0
+                    ? ` • ${formatMoney(share.state.changeOutstandingMinor, currency)} change`
+                    : ""}
+                </Text>
+              </View>
+              <Text
+                className={
+                  share.state.balanceMinor > 0
+                    ? "text-xs font-medium text-danger"
+                    : "text-xs font-medium text-success"
+                }
+              >
+                {share.state.balanceMinor > 0
+                  ? `${formatMoney(share.state.balanceMinor, currency)} left`
+                  : "Settled"}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </Surface>
   );
 }

@@ -27,6 +27,7 @@ import {
 import {
   useAppSettings,
   useBillTypes,
+  useSetAllowCentavos,
   useSetCurrency,
 } from "@/src/features/treasurer/queries";
 
@@ -34,6 +35,7 @@ export default function SettingsScreen() {
   const settings = useAppSettings();
   const billTypes = useBillTypes();
   const setCurrency = useSetCurrency();
+  const setAllowCentavos = useSetAllowCentavos();
   const queryClient = useQueryClient();
 
   const accent = useThemeColor("accent");
@@ -102,6 +104,23 @@ export default function SettingsScreen() {
       setMessage(`Currency changed to ${code}. Existing amounts were not converted.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "The currency could not be changed.");
+    }
+  }
+
+  async function handleToggleCentavos(next: boolean) {
+    setError(null);
+    setMessage(null);
+    try {
+      await setAllowCentavos.mutateAsync(next);
+      setMessage(
+        next
+          ? "Centavos are allowed in new amounts."
+          : "New amounts are whole pesos only. Existing centavo amounts are unchanged.",
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "The centavos setting could not be saved.",
+      );
     }
   }
 
@@ -219,6 +238,31 @@ export default function SettingsScreen() {
               backups somewhere trusted.
             </Text>
           </View>
+        </View>
+      </Surface>
+
+      <SectionHeader title="Amounts" />
+      <Surface variant="secondary" className="rounded-2xl p-4">
+        <View className="flex-row items-center justify-between gap-3">
+          <View className="flex-1">
+            <Text className="text-sm font-semibold text-foreground">Allow centavos</Text>
+            <Text className="mt-1 text-xs text-muted">
+              Turn on centavos for exact division. When off, bill splits round to whole pesos.
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="switch"
+            accessibilityState={{ checked: settings.data?.allowCentavos ?? true }}
+            accessibilityLabel="Allow centavos"
+            className="min-h-11 min-w-11 items-center justify-center"
+            onPress={() => void handleToggleCentavos(!(settings.data?.allowCentavos ?? true))}
+          >
+            <Ionicons
+              name={(settings.data?.allowCentavos ?? true) ? "checkbox" : "square-outline"}
+              size={24}
+              color={(settings.data?.allowCentavos ?? true) ? accent : muted}
+            />
+          </Pressable>
         </View>
       </Surface>
 

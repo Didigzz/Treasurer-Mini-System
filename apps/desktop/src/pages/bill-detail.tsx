@@ -325,6 +325,7 @@ export function BillDetailPage() {
                     </Link>
                     <ShareStatusBadge status={share.state.status} />
                     {share.boarderArchived ? <Badge>Archived</Badge> : null}
+                    {share.amountDueMinor === 0 ? <Badge>Nothing due</Badge> : null}
                     {share.state.needsReview ? <Badge tone="warning">Review change</Badge> : null}
                   </div>
                   <p className="mt-0.5 text-xs text-muted">
@@ -349,7 +350,7 @@ export function BillDetailPage() {
                   </p>
                 </div>
 
-                {!isArchived ? (
+                {!isArchived && share.amountDueMinor > 0 ? (
                   <Link to="/payments/new" search={{ shareId: share.id }}>
                     <Button size="sm" variant="secondary">
                       <Banknote size={14} />

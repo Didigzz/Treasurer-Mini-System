@@ -3,11 +3,12 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { CalendarDays, Plus, Users } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { equalSplit, validateCustomShares } from "@my-better-t-app/api/treasurer/calculations";
+import { equalSplit, splitWithOverrides } from "@my-better-t-app/api/treasurer/calculations";
 import {
   currentPeriod,
   formatMoney,
   minorToInputValue,
+  parseAmountInput,
   parseMoneyToMinor,
 } from "@my-better-t-app/api/treasurer/money";
 import type { SplitResult } from "@my-better-t-app/api/treasurer/types";
@@ -29,6 +30,8 @@ import { useActiveBoarders, useAppSettings, useBillMutations, useBillTypes } fro
 import { useTRPC } from "@/trpc";
 
 type SplitMethod = "equal" | "custom";
+
+const WHOLE_PESO_MESSAGE = "Whole pesos only. Turn on centavos in Settings to use decimals.";
 
 export function NewBillPage() {
   const search = useSearch({ from: "/bills/new" });
@@ -58,6 +61,7 @@ export function NewBillPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [method, setMethod] = useState<SplitMethod>("equal");
   const [customInputs, setCustomInputs] = useState<Record<string, string>>({});
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<Array<{ id: string; totalMinor: number }> | null>(
@@ -86,7 +90,9 @@ export function NewBillPage() {
     .map((id) => (boarders.data ?? []).find((boarder) => boarder.id === id))
     .filter((boarder): boarder is NonNullable<typeof boarder> => Boolean(boarder));
 
-  const parsedTotal = parseMoneyToMinor(totalInput);
+  const allowCentavos = settings.data?.allowCentavos ?? true;
+
+  const parsedTotal = parseAmountInput(totalInput, { allowCentavos });
 
   const equalResult = useMemo(() => {
     if (parsedTotal === null || parsedTotal <= 0) return null;
@@ -97,26 +103,50 @@ export function NewBillPage() {
         name: boarder.name,
         createdAt: boarder.createdAt,
       })),
+      { allowCentavos },
     );
-  }, [parsedTotal, selectedBoarders]);
+  }, [parsedTotal, selectedBoarders, allowCentavos]);
 
-  const customShares = selectedBoarders.map((boarder) => {
-    const amount = parseMoneyToMinor(customInputs[boarder.id] ?? "");
-    return { boarderId: boarder.id, amountMinor: amount ?? 0 };
-  });
+  const pinnedBoarders = selectedBoarders.filter((boarder) => pinnedIds.includes(boarder.id));
 
-  const customValidation =
-    parsedTotal === null
-      ? { valid: false as const, error: "Enter a valid bill total.", differenceMinor: 0 }
-      : validateCustomShares(parsedTotal, customShares);
+  const overrides = new Map<string, number>();
+  let invalidPin: { name: string; wholePesosOnly: boolean } | null = null;
+
+  for (const boarder of pinnedBoarders) {
+    const raw = customInputs[boarder.id] ?? "";
+    const amount = parseAmountInput(raw, { allowCentavos });
+
+    if (amount === null) {
+      invalidPin = { name: boarder.name, wholePesosOnly: parseMoneyToMinor(raw) !== null };
+      break;
+    }
+
+    overrides.set(boarder.id, amount);
+  }
+
+  const customResult =
+    invalidPin || parsedTotal === null || parsedTotal <= 0
+      ? null
+      : pinnedBoarders.length === 0
+        ? equalResult
+        : splitWithOverrides(
+            parsedTotal,
+            selectedBoarders.map((boarder) => ({
+              boarderId: boarder.id,
+              name: boarder.name,
+              createdAt: boarder.createdAt,
+            })),
+            overrides,
+            { allowCentavos },
+          );
 
   const sharesToSave: SplitResult[] | null =
     method === "equal"
       ? equalResult && !("error" in equalResult)
         ? equalResult.shares
         : null
-      : customValidation.valid
-        ? customShares
+      : customResult && !("error" in customResult)
+        ? customResult.shares
         : null;
 
   const splitError =
@@ -128,26 +158,49 @@ export function NewBillPage() {
           ? equalResult && "error" in equalResult
             ? equalResult.error
             : null
-          : customValidation.valid
-            ? null
-            : customValidation.error;
+          : invalidPin
+            ? invalidPin.wholePesosOnly
+              ? WHOLE_PESO_MESSAGE
+              : `Enter a valid amount for ${invalidPin.name}.`
+            : customResult && "error" in customResult
+              ? customResult.overByMinor !== undefined
+                ? `Custom amounts are ${formatMoney(customResult.overByMinor, currency)} over the bill total.`
+                : customResult.error
+              : null;
 
-  const customAssigned = customShares.reduce((total, share) => total + share.amountMinor, 0);
+  const customAssignedMinor = [...overrides.values()].reduce((total, value) => total + value, 0);
+  const leftoverMinor = parsedTotal === null ? 0 : parsedTotal - customAssignedMinor;
+  const poolCount = selectedBoarders.length - pinnedBoarders.length;
 
   function toggleBoarder(id: string) {
     setSelectedIds((current) =>
       current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
     );
+    // Unselecting drops the pin; the typed value stays so it can be shown as a reminder.
+    setPinnedIds((current) => current.filter((value) => value !== id));
+  }
+
+  function togglePinned(id: string) {
+    if (pinnedIds.includes(id)) {
+      setPinnedIds((current) => current.filter((value) => value !== id));
+      return;
+    }
+
+    const preview =
+      customResult && !("error" in customResult)
+        ? customResult.shares.find((share) => share.boarderId === id)
+        : equalResult && !("error" in equalResult)
+          ? equalResult.shares.find((share) => share.boarderId === id)
+          : undefined;
+
+    setPinnedIds((current) => [...current, id]);
+    setCustomInputs((current) =>
+      current[id] || !preview ? current : { ...current, [id]: minorToInputValue(preview.amountMinor) },
+    );
   }
 
   function chooseMethod(next: SplitMethod) {
-    if (next === "custom" && method === "equal" && equalResult && !("error" in equalResult)) {
-      setCustomInputs(
-        Object.fromEntries(
-          equalResult.shares.map((share) => [share.boarderId, minorToInputValue(share.amountMinor)]),
-        ),
-      );
-    }
+    // Custom mode starts neutral: nothing is pinned until the treasurer says so.
     setMethod(next);
   }
 
@@ -300,10 +353,14 @@ export function NewBillPage() {
           <Card className="p-5">
             <SectionHeader title="Amount and details" />
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={`Total bill (${currency})`} hint="e.g. 1234.50" required>
+              <Field
+                label={`Total bill (${currency})`}
+                hint={allowCentavos ? "e.g. 1234.50" : "Whole pesos only."}
+                required
+              >
                 <input
                   className="field"
-                  inputMode="decimal"
+                  inputMode={allowCentavos ? "decimal" : "numeric"}
                   placeholder="0.00"
                   maxLength={16}
                   value={totalInput}
@@ -449,33 +506,87 @@ export function NewBillPage() {
                 ) : null
               ) : (
                 <div className="space-y-2.5">
-                  {selectedBoarders.map((boarder) => (
-                    <div key={boarder.id} className="flex items-center gap-3">
-                      <span className="min-w-0 flex-1 truncate text-sm text-ink">
-                        {boarder.name}
-                      </span>
-                      <input
-                        className="field w-32 text-right tabular-nums"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                        value={customInputs[boarder.id] ?? ""}
-                        onChange={(event) =>
-                          setCustomInputs((current) => ({
-                            ...current,
-                            [boarder.id]: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                  ))}
+                  {pinnedBoarders.length === 0 ? (
+                    <p className="text-xs text-muted">
+                      Turn on Custom for any boarder to override their amount.
+                    </p>
+                  ) : null}
+                  {selectedBoarders.map((boarder) => {
+                    const pinned = pinnedIds.includes(boarder.id);
+                    const computed =
+                      customResult && !("error" in customResult)
+                        ? customResult.shares.find((share) => share.boarderId === boarder.id)
+                        : undefined;
+                    const stale = pinned ? undefined : customInputs[boarder.id];
+
+                    return (
+                      <div
+                        key={boarder.id}
+                        className="rounded-xl border border-line bg-panel px-3 py-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-ink">{boarder.name}</p>
+                            {!pinned ? (
+                              <p className="mt-0.5 text-[11px] leading-4 text-muted">
+                                Auto · split equally
+                                {stale ? (
+                                  <span className="ml-1.5 line-through opacity-60">{stale}</span>
+                                ) : null}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-3">
+                            <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-1.5 text-xs font-medium text-muted hover:text-ink">
+                              <input
+                                type="checkbox"
+                                checked={pinned}
+                                onChange={() => togglePinned(boarder.id)}
+                                className="h-4 w-4 accent-accent"
+                              />
+                              Custom
+                            </label>
+                            {pinned ? (
+                              <input
+                                className="field h-10 w-28 text-right font-medium tabular-nums"
+                                inputMode={allowCentavos ? "decimal" : "numeric"}
+                                placeholder="0.00"
+                                value={customInputs[boarder.id] ?? ""}
+                                onChange={(event) =>
+                                  setCustomInputs((current) => ({
+                                    ...current,
+                                    [boarder.id]: event.target.value,
+                                  }))
+                                }
+                              />
+                            ) : (
+                              <span className="w-28 text-right text-sm font-semibold tabular-nums text-ink">
+                                {computed ? formatMoney(computed.amountMinor, currency) : "—"}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                   <div className="flex items-center justify-between border-t border-line pt-2.5">
-                    <span className="text-xs font-semibold text-muted">Assigned</span>
+                    <span className="text-xs font-semibold text-muted">Custom amounts</span>
                     <span className="text-sm font-semibold tabular-nums text-ink">
-                      {formatMoney(customAssigned, currency)}
+                      {formatMoney(customAssignedMinor, currency)}
                     </span>
                   </div>
-                  {parsedTotal !== null && customValidation.valid === false ? (
-                    <p className="text-xs text-danger">{customValidation.error}</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-muted">Leftover</span>
+                    <span className="text-right text-xs text-muted">
+                      {poolCount === 0
+                        ? "every boarder is custom"
+                        : `${formatMoney(Math.max(0, leftoverMinor), currency)} split equally among ${poolCount} ${poolCount === 1 ? "boarder" : "boarders"}`}
+                    </span>
+                  </div>
+                  {customResult && !("error" in customResult) && customResult.rounded ? (
+                    <p className="text-xs text-muted">
+                      Rounded to whole pesos. Turn on centavos in Settings for exact division.
+                    </p>
                   ) : null}
                 </div>
               )}

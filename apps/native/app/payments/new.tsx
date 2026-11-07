@@ -23,7 +23,7 @@ import {
   formatMoney,
   formatPeriod,
   minorToInputValue,
-  parseMoneyToMinor,
+  parseAmountInput,
 } from "@my-better-t-app/api/treasurer/money";
 import {
   useAppSettings,
@@ -56,6 +56,7 @@ export default function PaymentScreen() {
   const initialized = useRef(false);
 
   const currency = settings.data?.currencyCode ?? "PHP";
+  const allowCentavos = settings.data?.allowCentavos ?? true;
 
   useEffect(() => {
     if (initialized.current || !context.data) return;
@@ -95,7 +96,22 @@ export default function PaymentScreen() {
   }
 
   const { share, bill, boarderName } = context.data;
-  const amountMinor = parseMoneyToMinor(amountInput);
+
+  if (share.amountDueMinor === 0) {
+    return (
+      <Screen>
+        <EmptyState
+          icon="receipt-outline"
+          title="Nothing due"
+          description="This boarder has a zero share on this bill, so there is nothing to pay."
+          actionLabel="Back to bill"
+          onAction={() => router.back()}
+        />
+      </Screen>
+    );
+  }
+
+  const amountMinor = parseAmountInput(amountInput, { allowCentavos });
   const preview =
     amountMinor !== null && amountMinor > 0
       ? previewPayment(share.amountDueMinor, share.state.payments, amountMinor, paidAt)

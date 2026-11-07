@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "bun run scripts/dev.ts",
+    "dev:web": "vite",
     "build": "vite build",
     "check-types": "tsc --noEmit",
     "preview": "vite preview",

@@ -9,7 +9,7 @@ import {
   formatMoney,
   formatPeriod,
   minorToInputValue,
-  parseMoneyToMinor,
+  parseAmountInput,
   todayIsoDate,
 } from "@my-better-t-app/api/treasurer/money";
 import {
@@ -48,6 +48,7 @@ export function NewPaymentPage() {
   const settings = useAppSettings();
   const { record } = usePaymentMutations();
   const currency = settings.data?.currencyCode ?? "PHP";
+  const allowCentavos = settings.data?.allowCentavos ?? true;
 
   const [amountInput, setAmountInput] = useState("");
   const [paidAt, setPaidAt] = useState(() => Date.now());
@@ -96,7 +97,22 @@ export function NewPaymentPage() {
   }
 
   const { share, bill, boarderName } = context.data;
-  const amountMinor = parseMoneyToMinor(amountInput);
+
+  if (share.amountDueMinor === 0) {
+    return (
+      <EmptyState
+        title="Nothing due"
+        description="This boarder has a zero share on this bill, so there is nothing to pay."
+        action={
+          <Link to="/bills/$id" params={{ id: bill.id }}>
+            <Button size="sm">Back to bill</Button>
+          </Link>
+        }
+      />
+    );
+  }
+
+  const amountMinor = parseAmountInput(amountInput, { allowCentavos });
   const preview =
     amountMinor !== null && amountMinor > 0
       ? previewPayment(share.amountDueMinor, share.state.payments, amountMinor, paidAt)

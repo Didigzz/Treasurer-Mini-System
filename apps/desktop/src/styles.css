@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-canvas: #f5f6f8;
   --color-panel: #ffffff;
@@ -17,6 +19,25 @@
   --color-warning: #b54708;
   --color-warning-soft: #fef0c7;
   --font-sans: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+.dark {
+  --color-canvas: #0b0f14;
+  --color-panel: #131a22;
+  --color-line: #26313d;
+  --color-ink: #e6edf5;
+  --color-muted: #9aa7b8;
+  --color-accent: #2dd4bf;
+  --color-accent-hover: #5eead4;
+  --color-accent-soft: #0f2e2b;
+  --color-accent-ink: #04211d;
+  --color-danger: #f97066;
+  --color-danger-soft: #3a1512;
+  --color-success: #4ade80;
+  --color-success-soft: #0d2e1c;
+  --color-warning: #fdb022;
+  --color-warning-soft: #3a2506;
+  color-scheme: dark;
 }
 
 @layer base {

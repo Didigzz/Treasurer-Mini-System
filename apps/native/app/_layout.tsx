@@ -26,6 +26,7 @@ export default function Layout() {
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                   <Stack.Screen name="bills/new" options={{ title: "Bill" }} />
                   <Stack.Screen name="bills/[id]" options={{ title: "Bill details" }} />
+                  <Stack.Screen name="history/[id]" options={{ title: "Bill history" }} />
                   <Stack.Screen name="boarders/[id]" options={{ title: "Boarder" }} />
                   <Stack.Screen name="bill-types" options={{ title: "Bill types" }} />
                   <Stack.Screen

@@ -1,4 +1,4 @@
-import { Download, HardDrive, RefreshCcw, Upload } from "lucide-react";
+import { Download, HardDrive, Moon, RefreshCcw, Sun, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { CURRENCY_OPTIONS } from "@my-better-t-app/api/treasurer/money";
@@ -15,8 +15,10 @@ import {
   PageHeader,
   SectionHeader,
   SuccessNote,
+  cn,
 } from "@/components/ui";
 import { openBackupFile, saveBackupFile } from "@/lib/backup-files";
+import { useTheme } from "@/lib/theme";
 import {
   useAppSettings,
   useBackupQueries,
@@ -25,8 +27,14 @@ import {
 
 export function SettingsPage() {
   const settings = useAppSettings();
-  const { setCurrency, importBackup } = useSettingsMutations();
+  const { setCurrency, setAllowCentavos, importBackup } = useSettingsMutations();
   const { exportPayload, inspect } = useBackupQueries();
+  const { theme, setTheme } = useTheme();
+
+  const themeOptions = [
+    { value: "light", label: "Light", icon: <Sun size={15} /> },
+    { value: "dark", label: "Dark", icon: <Moon size={15} /> },
+  ] as const;
 
   const [currency, setCurrencyValue] = useState("PHP");
   const [savedCurrency, setSavedCurrency] = useState("PHP");
@@ -57,6 +65,23 @@ export function SettingsPage() {
       setNotice("Currency updated. Existing amounts keep their numeric values.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The currency could not be saved.");
+    }
+  }
+
+  async function handleToggleCentavos(next: boolean) {
+    setError(null);
+    setNotice(null);
+    try {
+      await setAllowCentavos.mutateAsync({ allowCentavos: next });
+      setNotice(
+        next
+          ? "Centavos are allowed in new amounts."
+          : "New amounts are whole pesos only. Existing centavo amounts are unchanged.",
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "The centavos setting could not be saved.",
+      );
     }
   }
 
@@ -183,6 +208,25 @@ export function SettingsPage() {
               You have unsaved changes.
             </p>
           ) : null}
+
+          <div className="mt-5 flex items-start justify-between gap-3 border-t border-line pt-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink">Allow centavos</p>
+              <p className="mt-0.5 text-xs text-muted">
+                Turn on centavos for exact division. When off, bill splits round to whole pesos.
+              </p>
+            </div>
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-semibold text-muted">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-accent"
+                checked={settings.data.allowCentavos}
+                disabled={setAllowCentavos.isPending}
+                onChange={(event) => void handleToggleCentavos(event.target.checked)}
+              />
+              {settings.data.allowCentavos ? "On" : "Off"}
+            </label>
+          </div>
         </Card>
 
         <Card className="p-5">
@@ -203,6 +247,37 @@ export function SettingsPage() {
             <span className="font-semibold text-ink">
               {lastBackup ? formatDateTime(lastBackup) : "Never"}
             </span>
+          </div>
+        </Card>
+
+        <Card className="p-5 lg:col-span-2">
+          <SectionHeader
+            title="Appearance"
+            subtitle="Choose how the app looks. Light is the default."
+          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-1 rounded-xl border border-line bg-canvas p-1">
+              {themeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setTheme(option.value)}
+                  aria-pressed={theme === option.value}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                    theme === option.value
+                      ? "bg-panel text-ink shadow-sm"
+                      : "text-muted hover:text-ink",
+                  )}
+                >
+                  {option.icon}
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted">
+              Saved on this computer and applied immediately.
+            </p>
           </div>
         </Card>
 

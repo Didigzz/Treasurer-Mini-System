@@ -3,12 +3,17 @@ import { describe, expect, test } from "bun:test";
 import {
   computeBillSummary,
   computeBoarderPeriodSummaries,
+  computeHistoryTotals,
   computeShareState,
   equalSplit,
+  listHistoryPeriods,
   matchesBoarderFilter,
+  matchesHistoryFilter,
   matchesShareFilter,
   previewPayment,
   recomputePaymentChanges,
+  sortHistoryBills,
+  splitWithOverrides,
   validateCustomShares,
 } from "../calculations";
 import type { PaymentRecord, ShareWithState } from "../types";
@@ -78,6 +83,21 @@ describe("equalSplit", () => {
     ]);
     expect("error" in result).toBe(true);
   });
+
+  test("rounds to whole pesos when centavos are disabled", () => {
+    const result = equalSplit(
+      10_000,
+      [
+        { boarderId: "a", name: "Ana", createdAt: 1 },
+        { boarderId: "b", name: "Ben", createdAt: 2 },
+        { boarderId: "c", name: "Cara", createdAt: 3 },
+      ],
+      { allowCentavos: false },
+    );
+
+    if ("error" in result) throw new Error(result.error);
+    expect(result.shares.map((share) => share.amountMinor)).toEqual([3400, 3300, 3300]);
+  });
 });
 
 describe("validateCustomShares", () => {
@@ -90,7 +110,7 @@ describe("validateCustomShares", () => {
     ).toBe(true);
   });
 
-  test("rejects short, over, and zero shares", () => {
+  test("rejects short and over shares", () => {
     expect(
       validateCustomShares(10000, [
         { boarderId: "a", amountMinor: 4000 },
@@ -103,12 +123,114 @@ describe("validateCustomShares", () => {
         { boarderId: "b", amountMinor: 5000 },
       ]).valid,
     ).toBe(false);
+  });
+
+  test("accepts a zero share when the total still balances", () => {
     expect(
       validateCustomShares(10000, [
         { boarderId: "a", amountMinor: 10000 },
         { boarderId: "b", amountMinor: 0 },
       ]).valid,
+    ).toBe(true);
+  });
+
+  test("rejects negative amounts", () => {
+    expect(
+      validateCustomShares(10000, [
+        { boarderId: "a", amountMinor: 12000 },
+        { boarderId: "b", amountMinor: -2000 },
+      ]).valid,
     ).toBe(false);
+  });
+});
+
+describe("splitWithOverrides", () => {
+  const boarders = [
+    { boarderId: "ana", name: "Ana", createdAt: 1 },
+    { boarderId: "ben", name: "Ben", createdAt: 2 },
+    { boarderId: "cara", name: "Cara", createdAt: 3 },
+    { boarderId: "dan", name: "Dan", createdAt: 4 },
+  ];
+
+  test("splits the leftover among the unpinned boarders in selection order", () => {
+    const result = splitWithOverrides(100_000, boarders, new Map([["ana", 30_000]]));
+    if ("error" in result) throw new Error(result.error);
+
+    expect(result.shares).toEqual([
+      { boarderId: "ana", amountMinor: 30_000 },
+      { boarderId: "ben", amountMinor: 23_334 },
+      { boarderId: "cara", amountMinor: 23_333 },
+      { boarderId: "dan", amountMinor: 23_333 },
+    ]);
+    expect(result.poolCount).toBe(3);
+    expect(result.leftoverMinor).toBe(70_000);
+    expect(result.rounded).toBe(false);
+  });
+
+  test("rounds to whole pesos when centavos are disabled", () => {
+    const result = splitWithOverrides(100_000, boarders, new Map([["ana", 30_000]]), {
+      allowCentavos: false,
+    });
+    if ("error" in result) throw new Error(result.error);
+
+    expect(result.shares.map((share) => share.amountMinor)).toEqual([
+      30_000, 23_400, 23_300, 23_300,
+    ]);
+    expect(result.rounded).toBe(true);
+  });
+
+  test("allows zero shares when custom amounts consume the total", () => {
+    const result = splitWithOverrides(10_000, boarders.slice(0, 3), new Map([["ana", 10_000]]));
+    if ("error" in result) throw new Error(result.error);
+
+    expect(result.shares).toEqual([
+      { boarderId: "ana", amountMinor: 10_000 },
+      { boarderId: "ben", amountMinor: 0 },
+      { boarderId: "cara", amountMinor: 0 },
+    ]);
+  });
+
+  test("hands out the last centavos one at a time", () => {
+    const result = splitWithOverrides(1_000, boarders.slice(0, 3), new Map([["ana", 999]]));
+    if ("error" in result) throw new Error(result.error);
+
+    expect(result.shares.map((share) => share.amountMinor)).toEqual([999, 1, 0]);
+  });
+
+  test("rejects a custom total above the bill", () => {
+    const result = splitWithOverrides(10_000, boarders, new Map([["ana", 12_000]]));
+    expect("error" in result).toBe(true);
+    if ("error" in result) expect(result.overByMinor).toBe(2_000);
+  });
+
+  test("requires the pinned amounts to balance when nobody is left in the pool", () => {
+    const all = new Map([
+      ["ana", 2_500],
+      ["ben", 2_500],
+      ["cara", 2_500],
+      ["dan", 2_500],
+    ]);
+    expect("error" in splitWithOverrides(10_000, boarders, all)).toBe(false);
+    expect("error" in splitWithOverrides(12_000, boarders, all)).toBe(true);
+  });
+
+  test("keeps pinned rows in place and preserves pool order", () => {
+    const result = splitWithOverrides(9_000, boarders, new Map([["ben", 3_000]]));
+    if ("error" in result) throw new Error(result.error);
+
+    expect(result.shares).toEqual([
+      { boarderId: "ana", amountMinor: 2_000 },
+      { boarderId: "ben", amountMinor: 3_000 },
+      { boarderId: "cara", amountMinor: 2_000 },
+      { boarderId: "dan", amountMinor: 2_000 },
+    ]);
+  });
+
+  test("rejects a fractional pin when whole pesos are required", () => {
+    const result = splitWithOverrides(10_000, boarders, new Map([["ana", 1_050]]), {
+      allowCentavos: false,
+    });
+    expect("error" in result).toBe(true);
   });
 });
 
@@ -227,5 +349,88 @@ describe("bill totals and filters", () => {
     expect(summaries[0]?.appliedMinor).toBe(30000);
     expect(summaries[0]?.outstandingMinor).toBe(5000);
     expect(matchesBoarderFilter(summaries[0]!, "unpaid")).toBe(true);
+  });
+});
+
+function historyBill(id: string, periodYear: number, periodMonth: number, createdAt: number) {
+  return { bill: { id, billTypeId: "water", periodYear, periodMonth, createdAt } };
+}
+
+describe("bill history helpers", () => {
+  const bills = [
+    historyBill("a", 2026, 10, 1),
+    historyBill("b", 2026, 11, 2),
+    historyBill("c", 2025, 12, 3),
+  ];
+
+  test("matches every bill for the default filter", () => {
+    expect(
+      bills.every((item) =>
+        matchesHistoryFilter(item.bill, { year: null, month: null, billTypeId: null }),
+      ),
+    ).toBe(true);
+  });
+
+  test("filters by month and type", () => {
+    expect(
+      bills
+        .filter((item) =>
+          matchesHistoryFilter(item.bill, { year: 2026, month: 11, billTypeId: null }),
+        )
+        .map((item) => item.bill.id),
+    ).toEqual(["b"]);
+
+    expect(
+      matchesHistoryFilter(bills[1]!.bill, { year: 2026, month: 10, billTypeId: null }),
+    ).toBe(false);
+    expect(
+      matchesHistoryFilter(bills[1]!.bill, { year: null, month: null, billTypeId: "water" }),
+    ).toBe(true);
+    expect(
+      matchesHistoryFilter(bills[1]!.bill, { year: null, month: null, billTypeId: "rent" }),
+    ).toBe(false);
+  });
+
+  test("sorts newest period first, then newest created, without mutating the input", () => {
+    const sameMonth = [
+      historyBill("old", 2026, 11, 1),
+      historyBill("new", 2026, 11, 5),
+    ];
+
+    expect(
+      sortHistoryBills([...bills, ...sameMonth]).map((item) => item.bill.id),
+    ).toEqual(["new", "b", "old", "a", "c"]);
+    expect(bills.map((item) => item.bill.id)).toEqual(["a", "b", "c"]);
+  });
+
+  test("lists periods that have bills, newest first, counting archived bills", () => {
+    expect(
+      listHistoryPeriods([...bills.map((item) => item.bill), historyBill("d", 2026, 11, 4).bill]),
+    ).toEqual([
+      { year: 2026, month: 11, billCount: 2 },
+      { year: 2026, month: 10, billCount: 1 },
+      { year: 2025, month: 12, billCount: 1 },
+    ]);
+  });
+
+  test("sums totals and returns zeros for an empty list", () => {
+    expect(
+      computeHistoryTotals([
+        { expectedMinor: 1000, appliedMinor: 600, outstandingMinor: 400, changeOutstandingMinor: 0 },
+        { expectedMinor: 500, appliedMinor: 500, outstandingMinor: 0, changeOutstandingMinor: 50 },
+      ]),
+    ).toEqual({
+      expectedMinor: 1500,
+      appliedMinor: 1100,
+      outstandingMinor: 400,
+      changeOutstandingMinor: 50,
+    });
+
+    expect(computeHistoryTotals([])).toEqual({
+      expectedMinor: 0,
+      appliedMinor: 0,
+      outstandingMinor: 0,
+      changeOutstandingMinor: 0,
+    });
   });
 });

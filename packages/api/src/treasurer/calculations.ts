@@ -2,43 +2,159 @@ import type {
   BillStatus,
   BoarderPeriodSummary,
   EqualSplitInput,
+  HistoryFilter,
+  HistoryPeriod,
+  HistoryTotals,
   PaymentRecord,
   PaymentWithComputedChange,
   ShareFilter,
   ShareState,
   ShareStatus,
   ShareWithState,
+  SplitOptions,
   SplitResult,
 } from "./types";
+
+export const MINOR_STEP_FOR_WHOLE_UNITS = 100;
+
+export type SplitBoarder = EqualSplitInput;
+
+export interface SplitSuccess {
+  shares: SplitResult[];
+  leftoverMinor?: number;
+  poolCount?: number;
+  /** True when whole-peso mode had to hand out a larger unit than the base share. */
+  rounded?: boolean;
+}
+
+export interface SplitFailure {
+  error: string;
+  overByMinor?: number;
+}
+
+export type MixedSplitResult = SplitSuccess | SplitFailure;
+
+function splitStep(options?: SplitOptions): number {
+  return options?.allowCentavos === false ? MINOR_STEP_FOR_WHOLE_UNITS : 1;
+}
 
 export function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }
 
 /**
- * Split equally, giving the leftover centavos one at a time to the first
- * boarders in the caller's order (their selection order in the picker).
+ * Split equally, giving the leftover units one at a time to the first boarders
+ * in the caller's order (their selection order in the picker). With centavos
+ * disabled the leftover is handed out in whole pesos instead.
  */
 export function equalSplit(
   totalMinor: number,
   boarders: EqualSplitInput[],
-): { shares: SplitResult[] } | { error: string } {
+  options?: SplitOptions,
+): MixedSplitResult {
   if (boarders.length === 0) {
     return { error: "Select at least one boarder." };
   }
 
-  if (totalMinor < boarders.length) {
+  const step = splitStep(options);
+
+  if (totalMinor < boarders.length * step) {
     return { error: "The bill total is too small to split among the selected boarders." };
   }
 
-  const base = Math.floor(totalMinor / boarders.length);
-  const remainder = totalMinor % boarders.length;
+  const base = Math.floor(totalMinor / (boarders.length * step)) * step;
+  const remainderUnits = (totalMinor - base * boarders.length) / step;
 
   return {
     shares: boarders.map((boarder, index) => ({
       boarderId: boarder.boarderId,
-      amountMinor: base + (index < remainder ? 1 : 0),
+      amountMinor: base + (index < remainderUnits ? step : 0),
     })),
+  };
+}
+
+/**
+ * Mixed split: boarders with an override keep their typed amount, and the
+ * leftover is divided among everyone else in selection order. A boarder may
+ * end up with zero when the overrides consume the whole bill.
+ */
+export function splitWithOverrides(
+  totalMinor: number,
+  boarders: EqualSplitInput[],
+  overrides: Map<string, number>,
+  options?: SplitOptions,
+): MixedSplitResult {
+  if (boarders.length === 0) {
+    return { error: "Select at least one boarder." };
+  }
+
+  if (totalMinor <= 0) {
+    return { error: "Enter a bill total greater than zero." };
+  }
+
+  const step = splitStep(options);
+  const pinned = new Map<string, number>();
+
+  for (const boarder of boarders) {
+    const override = overrides.get(boarder.boarderId);
+    if (override === undefined) continue;
+
+    if (!Number.isInteger(override) || override < 0) {
+      return { error: "Amounts cannot be negative." };
+    }
+    if (override % step !== 0) {
+      return { error: "Whole pesos only. Turn on centavos to use decimals." };
+    }
+    pinned.set(boarder.boarderId, override);
+  }
+
+  const customTotal = sum([...pinned.values()]);
+  const leftoverMinor = totalMinor - customTotal;
+
+  if (leftoverMinor < 0) {
+    return { error: "Custom amounts are over the bill total.", overByMinor: -leftoverMinor };
+  }
+
+  const pool = boarders.filter((boarder) => !pinned.has(boarder.boarderId));
+
+  if (pool.length === 0) {
+    if (leftoverMinor !== 0) {
+      return { error: "The assigned shares are short of the bill total." };
+    }
+
+    return {
+      shares: boarders.map((boarder) => ({
+        boarderId: boarder.boarderId,
+        amountMinor: pinned.get(boarder.boarderId) ?? 0,
+      })),
+      leftoverMinor: 0,
+      poolCount: 0,
+      rounded: false,
+    };
+  }
+
+  const base = Math.floor(leftoverMinor / (pool.length * step)) * step;
+  const remainderUnits = (leftoverMinor - base * pool.length) / step;
+
+  if (!Number.isInteger(remainderUnits)) {
+    return { error: "Whole pesos only. Turn on centavos to use decimals." };
+  }
+
+  const autoShares = new Map(
+    pool.map((boarder, index) => [
+      boarder.boarderId,
+      base + (index < remainderUnits ? step : 0),
+    ]),
+  );
+
+  return {
+    shares: boarders.map((boarder) => ({
+      boarderId: boarder.boarderId,
+      amountMinor: pinned.get(boarder.boarderId) ?? autoShares.get(boarder.boarderId) ?? 0,
+    })),
+    leftoverMinor,
+    poolCount: pool.length,
+    rounded: step > 1 && remainderUnits > 0,
   };
 }
 
@@ -50,11 +166,11 @@ export function validateCustomShares(
     return { valid: false, differenceMinor: totalMinor, error: "Select at least one boarder." };
   }
 
-  if (shares.some((share) => share.amountMinor <= 0)) {
+  if (shares.some((share) => share.amountMinor < 0)) {
     return {
       valid: false,
       differenceMinor: totalMinor - sum(shares.map((share) => share.amountMinor)),
-      error: "Every selected boarder needs an amount of at least ₱0.01.",
+      error: "Amounts cannot be negative.",
     };
   }
 
@@ -339,4 +455,63 @@ export function shareStatusLabel(status: ShareStatus): string {
     case "unpaid":
       return "Unpaid";
   }
+}
+
+export interface HistoryBillRef {
+  id: string;
+  billTypeId: string;
+  periodYear: number;
+  periodMonth: number;
+  createdAt: number;
+}
+
+export function matchesHistoryFilter(
+  bill: Pick<HistoryBillRef, "billTypeId" | "periodYear" | "periodMonth">,
+  filter: HistoryFilter,
+): boolean {
+  if (filter.year !== null && bill.periodYear !== filter.year) return false;
+  if (filter.month !== null && bill.periodMonth !== filter.month) return false;
+  if (filter.billTypeId !== null && bill.billTypeId !== filter.billTypeId) return false;
+  return true;
+}
+
+/** Newest period first, then the most recently created bill inside the month. */
+export function sortHistoryBills<
+  T extends { bill: Pick<HistoryBillRef, "id" | "periodYear" | "periodMonth" | "createdAt"> },
+>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    if (a.bill.periodYear !== b.bill.periodYear) return b.bill.periodYear - a.bill.periodYear;
+    if (a.bill.periodMonth !== b.bill.periodMonth) return b.bill.periodMonth - a.bill.periodMonth;
+    if (a.bill.createdAt !== b.bill.createdAt) return b.bill.createdAt - a.bill.createdAt;
+    return a.bill.id.localeCompare(b.bill.id);
+  });
+}
+
+export function listHistoryPeriods(
+  bills: Array<Pick<HistoryBillRef, "periodYear" | "periodMonth">>,
+): HistoryPeriod[] {
+  const periods = new Map<string, HistoryPeriod>();
+
+  for (const bill of bills) {
+    const key = `${bill.periodYear}-${bill.periodMonth}`;
+    const existing = periods.get(key);
+    if (existing) existing.billCount += 1;
+    else periods.set(key, { year: bill.periodYear, month: bill.periodMonth, billCount: 1 });
+  }
+
+  return [...periods.values()].sort((a, b) => {
+    if (a.year !== b.year) return b.year - a.year;
+    return b.month - a.month;
+  });
+}
+
+export function computeHistoryTotals(summaries: HistoryTotals[]): HistoryTotals {
+  return {
+    expectedMinor: sum(summaries.map((summary) => summary.expectedMinor)),
+    appliedMinor: sum(summaries.map((summary) => summary.appliedMinor)),
+    outstandingMinor: sum(summaries.map((summary) => summary.outstandingMinor)),
+    changeOutstandingMinor: sum(
+      summaries.map((summary) => summary.changeOutstandingMinor),
+    ),
+  };
 }

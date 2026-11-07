@@ -6,6 +6,7 @@ import {
   createBill,
   findDuplicateBills,
   getBillDetail,
+  getBillHistory,
   getDashboard,
   setBillArchived,
   updateBill,
@@ -26,7 +27,9 @@ const createBillInput = z.object({
     .array(
       z.object({
         boarderId: z.string().min(1),
-        amountMinor: z.number().int().min(1).max(MAX_AMOUNT_MINOR),
+        // Zero is allowed: a boarder may owe nothing when custom amounts
+        // consume the whole bill.
+        amountMinor: z.number().int().min(0).max(MAX_AMOUNT_MINOR),
       }),
     )
     .min(1),
@@ -47,6 +50,7 @@ export const billsRouter = router({
   get: publicProcedure.input(idInput).query(({ ctx, input }) =>
     getBillDetail(ctx.db, input.id),
   ),
+  history: publicProcedure.query(({ ctx }) => getBillHistory(ctx.db)),
   create: publicProcedure
     .input(createBillInput)
     .mutation(({ ctx, input }) => createBill(ctx.db, input)),

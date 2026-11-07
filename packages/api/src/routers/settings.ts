@@ -4,6 +4,7 @@ import { publicProcedure, router } from "../index";
 import { isCurrencyCode } from "../treasurer/money";
 import {
   getAppSettings,
+  setAllowCentavos,
   setCurrencyCode,
   setLastBackupAt,
 } from "../treasurer/settings";
@@ -18,6 +19,11 @@ export const settingsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await setCurrencyCode(ctx.db, input.currencyCode);
+    }),
+  setAllowCentavos: publicProcedure
+    .input(z.object({ allowCentavos: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await setAllowCentavos(ctx.db, input.allowCentavos);
     }),
   setLastBackupAt: publicProcedure
     .input(z.object({ value: z.string().min(1) }))

@@ -71,6 +71,27 @@ export function parseMoneyToMinor(input: string): number | null {
   return minor;
 }
 
+/**
+ * Parse an amount the user typed, honouring the centavos setting. With
+ * centavos disabled, a fractional value is rejected instead of rounded so the
+ * app never silently changes what was typed.
+ */
+export function parseAmountInput(
+  input: string,
+  options?: { allowCentavos?: boolean },
+): number | null {
+  if (options?.allowCentavos !== false) {
+    return parseMoneyToMinor(input);
+  }
+
+  const normalized = input.trim().replace(/,/g, "");
+  if (!/^\d+(\.0{0,2})?$/.test(normalized)) return null;
+
+  const minor = parseMoneyToMinor(normalized);
+  if (minor === null || minor % MINOR_UNITS_PER_UNIT !== 0) return null;
+  return minor;
+}
+
 export function minorToInputValue(minor: number): string {
   const whole = Math.floor(minor / MINOR_UNITS_PER_UNIT);
   const cents = Math.abs(minor % MINOR_UNITS_PER_UNIT);

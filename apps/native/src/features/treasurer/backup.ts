@@ -24,6 +24,7 @@ const isoTimestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value
 });
 
 const moneySchema = z.number().int().min(1).max(MAX_AMOUNT_MINOR);
+const shareMoneySchema = z.number().int().min(0).max(MAX_AMOUNT_MINOR);
 const optionalText = (max: number) => z.string().max(max).nullable();
 
 const billTypeSchema = z.object({
@@ -63,7 +64,7 @@ const billShareSchema = z.object({
   billId: z.string().min(1),
   boarderId: z.string().min(1),
   boarderNameSnapshot: z.string().min(1).max(80),
-  amountDueMinor: moneySchema,
+  amountDueMinor: shareMoneySchema,
   createdAt: isoTimestamp,
 });
 
@@ -83,6 +84,7 @@ const paymentSchema = z.object({
 
 const settingsSchema = z.object({
   currencyCode: z.string().min(3).max(3),
+  allowCentavos: z.boolean().optional(),
   lastBackupAt: isoTimestamp.nullable(),
 });
 
@@ -142,6 +144,7 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     data: {
       settings: {
         currencyCode: settingsMap.get("currency_code") || "PHP",
+        allowCentavos: settingsMap.get("allow_centavos") !== "false",
         lastBackupAt: settingsMap.get("last_backup_at")
           ? settingsMap.get("last_backup_at")!
           : null,
@@ -385,6 +388,11 @@ export async function restoreBackup(payload: BackupPayload): Promise<void> {
       {
         key: "last_backup_at",
         value: data.settings.lastBackupAt ?? "",
+        updatedAt: now,
+      },
+      {
+        key: "allow_centavos",
+        value: (data.settings.allowCentavos ?? true) ? "true" : "false",
         updatedAt: now,
       },
     ]);

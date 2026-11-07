@@ -7,7 +7,7 @@ import {
   Outlet,
   useRouterState,
 } from "@tanstack/react-router";
-import { LayoutDashboard, Settings, Tags, Users } from "lucide-react";
+import { History, LayoutDashboard, Settings, Tags, Users } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { BillDetailPage } from "@/pages/bill-detail";
@@ -15,6 +15,8 @@ import { BillTypesPage } from "@/pages/bill-types";
 import { BoarderDetailPage } from "@/pages/boarder-detail";
 import { BoardersPage } from "@/pages/boarders";
 import { DashboardPage } from "@/pages/dashboard";
+import { HistoryBillPage } from "@/pages/history-detail";
+import { HistoryPage } from "@/pages/history";
 import { NewBillPage } from "@/pages/new-bill";
 import { NewPaymentPage } from "@/pages/new-payment";
 import { SettingsPage } from "@/pages/settings";
@@ -22,6 +24,7 @@ import { cn } from "@/components/ui";
 
 const NAV_ITEMS: Array<{ to: string; label: string; icon: ReactNode }> = [
   { to: "/", label: "Dashboard", icon: <LayoutDashboard size={17} /> },
+  { to: "/history", label: "History", icon: <History size={17} /> },
   { to: "/boarders", label: "Boarders", icon: <Users size={17} /> },
   { to: "/bill-types", label: "Bill types", icon: <Tags size={17} /> },
   { to: "/settings", label: "Settings", icon: <Settings size={17} /> },
@@ -93,6 +96,18 @@ const boardersRoute = createRoute({
   component: BoardersPage,
 });
 
+const historyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/history",
+  component: HistoryPage,
+});
+
+const historyDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/history/$id",
+  component: HistoryBillPage,
+});
+
 const boarderDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/boarders/$id",
@@ -138,6 +153,8 @@ const settingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
+  historyRoute,
+  historyDetailRoute,
   boardersRoute,
   boarderDetailRoute,
   billTypesRoute,

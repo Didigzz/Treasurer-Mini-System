@@ -9,6 +9,7 @@ import { resolveServerUrl, waitForServer } from "@/env";
 import { router } from "@/router";
 import { TRPCProvider } from "@/trpc";
 import { Button } from "@/components/ui";
+import { ThemeProvider } from "@/lib/theme";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -115,6 +116,8 @@ function Bootstrap() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Bootstrap />
+    <ThemeProvider>
+      <Bootstrap />
+    </ThemeProvider>
   </StrictMode>,
 );

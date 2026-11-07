@@ -8,6 +8,7 @@ import {
   getActiveBoarders,
   getAppSettings,
   getBillDetail,
+  getBillHistory,
   getBoarderLedger,
   getDashboard,
   getSharePaymentContext,
@@ -17,6 +18,7 @@ import {
   recordPayment,
   renameBillType,
   renameBoarder,
+  setAllowCentavos,
   setBillArchived,
   setBillTypeArchived,
   setBoarderArchived,
@@ -37,6 +39,7 @@ export const treasurerKeys = {
   activeBoarders: ["treasurer", "boarders", "active"] as const,
   dashboard: (year: number, month: number, includeArchived: boolean) =>
     ["treasurer", "dashboard", year, month, includeArchived] as const,
+  billHistory: ["treasurer", "bill-history"] as const,
   bill: (id: string) => ["treasurer", "bill", id] as const,
   boarder: (id: string) => ["treasurer", "boarder", id] as const,
   paymentContext: (shareId: string) => ["treasurer", "payment-context", shareId] as const,
@@ -81,6 +84,13 @@ export function useDashboard(year: number, month: number, includeArchived: boole
   return useQuery({
     queryKey: treasurerKeys.dashboard(year, month, includeArchived),
     queryFn: () => getDashboard(year, month, includeArchived),
+  });
+}
+
+export function useBillHistory() {
+  return useQuery({
+    queryKey: treasurerKeys.billHistory,
+    queryFn: getBillHistory,
   });
 }
 
@@ -237,6 +247,14 @@ export function useSetCurrency() {
   const invalidate = useInvalidateTreasurer();
   return useMutation({
     mutationFn: setCurrencyCode,
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetAllowCentavos() {
+  const invalidate = useInvalidateTreasurer();
+  return useMutation({
+    mutationFn: setAllowCentavos,
     onSuccess: invalidate,
   });
 }

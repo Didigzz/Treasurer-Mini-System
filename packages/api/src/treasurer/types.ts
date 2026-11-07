@@ -88,3 +88,29 @@ export interface SplitResult {
   boarderId: string;
   amountMinor: number;
 }
+
+export interface HistoryPeriod {
+  year: number;
+  month: number;
+  billCount: number;
+}
+
+export interface HistoryTotals {
+  expectedMinor: number;
+  appliedMinor: number;
+  outstandingMinor: number;
+  changeOutstandingMinor: number;
+}
+
+export interface HistoryFilter {
+  /** null means every month. */
+  year: number | null;
+  month: number | null;
+  /** null means every bill type. */
+  billTypeId: string | null;
+}
+
+export interface SplitOptions {
+  /** false => whole pesos only (multiples of 100 minor units). Defaults to true. */
+  allowCentavos?: boolean;
+}

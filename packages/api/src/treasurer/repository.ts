@@ -15,13 +15,16 @@ import {
   computeBillSummary,
   computeBoarderPeriodSummaries,
   computeShareState,
+  listHistoryPeriods,
   recomputePaymentChanges,
   shareStatusLabel,
+  sortHistoryBills,
 } from "./calculations";
 import { asPaymentRecord, buildShareStates } from "./mapping";
 import type {
   BillStatus,
   BoarderPeriodSummary,
+  HistoryPeriod,
   PaymentRecord,
   PaymentWithComputedChange,
   ShareState,
@@ -75,6 +78,12 @@ export interface DashboardData {
     unpaidShareCount: number;
     totalShareCount: number;
   };
+}
+
+export interface BillHistoryData {
+  bills: BillWithDetails[];
+  periods: HistoryPeriod[];
+  billTypes: Array<{ id: string; name: string; billCount: number }>;
 }
 
 export interface BoarderLedgerItem {
@@ -483,6 +492,59 @@ export async function getDashboard(
         0,
       ),
     },
+  };
+}
+
+export async function getBillHistory(db: Database): Promise<BillHistoryData> {
+  const [billRows, typeRows] = await Promise.all([
+    db.select().from(bills),
+    db.select().from(billTypes),
+  ]);
+
+  const typesById = new Map(typeRows.map((type) => [type.id, type]));
+  const allShares = await loadSharesForBills(
+    db,
+    billRows.map((bill) => bill.id),
+  );
+  const sharesByBill = new Map<string, ShareWithState[]>();
+  for (const share of allShares) {
+    const current = sharesByBill.get(share.billId) ?? [];
+    current.push(share);
+    sharesByBill.set(share.billId, current);
+  }
+
+  const billsWithDetails: BillWithDetails[] = billRows.map((bill) => {
+    const shares = sharesByBill.get(bill.id) ?? [];
+    return {
+      bill,
+      shares,
+      summary: computeBillSummary(shares, bill.archivedAt),
+      currentTypeName: typesById.get(bill.billTypeId)?.name ?? bill.billTypeNameSnapshot,
+      isLocked: shares.some((share) =>
+        share.state.payments.some((payment) => payment.isActive),
+      ),
+    };
+  });
+
+  const typeCounts = new Map<string, number>();
+  const snapshotNames = new Map<string, string>();
+  for (const bill of billRows) {
+    typeCounts.set(bill.billTypeId, (typeCounts.get(bill.billTypeId) ?? 0) + 1);
+    if (!snapshotNames.has(bill.billTypeId)) {
+      snapshotNames.set(bill.billTypeId, bill.billTypeNameSnapshot);
+    }
+  }
+
+  return {
+    bills: sortHistoryBills(billsWithDetails),
+    periods: listHistoryPeriods(billRows),
+    billTypes: [...typeCounts.entries()]
+      .map(([id, billCount]) => ({
+        id,
+        name: typesById.get(id)?.name ?? snapshotNames.get(id) ?? id,
+        billCount,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
   };
 }
 

@@ -253,4 +253,163 @@ describe("treasurer router", () => {
     });
     expect(dashboard.totals.expectedMinor).toBe(3_000);
   });
+
+  test("accepts a zero share when custom amounts cover the whole bill", async () => {
+    const types = await caller.billTypes.list();
+    const rent = types.find((type) => type.name === "Rent")!;
+    const anaId = await caller.boarders.create({ name: "Ana" });
+    const benId = await caller.boarders.create({ name: "Ben" });
+
+    const billId = await caller.bills.create({
+      billTypeId: rent.id,
+      periodYear: 2026,
+      periodMonth: 12,
+      totalMinor: 5_000,
+      dueDate: null,
+      note: null,
+      shares: [
+        { boarderId: anaId, amountMinor: 5_000 },
+        { boarderId: benId, amountMinor: 0 },
+      ],
+    });
+
+    const detail = await caller.bills.get({ id: billId });
+    const benShare = detail!.shares.find((share) => share.boarderId === benId)!;
+    expect(benShare.amountDueMinor).toBe(0);
+    expect(benShare.state.status).toBe("paid");
+    expect(benShare.state.balanceMinor).toBe(0);
+    expect(detail!.summary.expectedMinor).toBe(5_000);
+    expect(detail!.summary.outstandingMinor).toBe(5_000);
+  });
+
+  test("defaults allow centavos on and round-trips the setting", async () => {
+    expect((await caller.settings.get()).allowCentavos).toBe(true);
+
+    await caller.settings.setAllowCentavos({ allowCentavos: false });
+    expect((await caller.settings.get()).allowCentavos).toBe(false);
+
+    await caller.settings.setAllowCentavos({ allowCentavos: true });
+    expect((await caller.settings.get()).allowCentavos).toBe(true);
+  });
+
+  test("restores a backup written before the centavos setting existed", async () => {
+    const boarderId = await caller.boarders.create({ name: "Ivy" });
+    const types = await caller.billTypes.list();
+    const rent = types.find((type) => type.name === "Rent")!;
+    await caller.bills.create({
+      billTypeId: rent.id,
+      periodYear: 2026,
+      periodMonth: 11,
+      totalMinor: 1_500,
+      dueDate: null,
+      note: null,
+      shares: [{ boarderId, amountMinor: 1_500 }],
+    });
+
+    const payload = await caller.backup.export();
+    const legacy = {
+      ...payload,
+      data: {
+        ...payload.data,
+        settings: { currencyCode: "PHP", lastBackupAt: null },
+      },
+    };
+
+    await caller.settings.setAllowCentavos({ allowCentavos: false });
+    await caller.backup.import({ json: JSON.stringify(legacy) });
+
+    expect((await caller.settings.get()).allowCentavos).toBe(true);
+  });
+
+  test("lists every bill in history newest period first, archived included", async () => {
+    const types = await caller.billTypes.list();
+    const water = types.find((type) => type.name === "Water")!;
+    const rent = types.find((type) => type.name === "Rent")!;
+    const boarderId = await caller.boarders.create({ name: "Ana" });
+
+    const octoberBill = await caller.bills.create({
+      billTypeId: water.id,
+      periodYear: 2026,
+      periodMonth: 10,
+      totalMinor: 1_000,
+      dueDate: null,
+      note: null,
+      shares: [{ boarderId, amountMinor: 1_000 }],
+    });
+    await Bun.sleep(5);
+    const novemberBill = await caller.bills.create({
+      billTypeId: rent.id,
+      periodYear: 2026,
+      periodMonth: 11,
+      totalMinor: 2_000,
+      dueDate: null,
+      note: null,
+      shares: [{ boarderId, amountMinor: 2_000 }],
+    });
+
+    await caller.bills.setArchived({ id: octoberBill, isArchived: true });
+
+    const history = await caller.bills.history();
+    expect(history.bills.map((item) => item.bill.id)).toEqual([novemberBill, octoberBill]);
+    expect(history.periods).toEqual([
+      { year: 2026, month: 11, billCount: 1 },
+      { year: 2026, month: 10, billCount: 1 },
+    ]);
+    expect(history.bills[1]!.summary.status).toBe("archived");
+    expect(history.billTypes.map((type) => type.name).sort()).toEqual(["Rent", "Water"]);
+  });
+
+  test("history uses current type names but keeps bill snapshots", async () => {
+    const types = await caller.billTypes.list();
+    const water = types.find((type) => type.name === "Water")!;
+    const boarderId = await caller.boarders.create({ name: "Ana" });
+
+    await caller.bills.create({
+      billTypeId: water.id,
+      periodYear: 2026,
+      periodMonth: 11,
+      totalMinor: 1_000,
+      dueDate: null,
+      note: null,
+      shares: [{ boarderId, amountMinor: 1_000 }],
+    });
+
+    await caller.billTypes.rename({ id: water.id, name: "Water bill" });
+
+    const history = await caller.bills.history();
+    expect(history.billTypes).toEqual([
+      { id: water.id, name: "Water bill", billCount: 1 },
+    ]);
+    expect(history.bills[0]!.bill.billTypeNameSnapshot).toBe("Water");
+    expect(history.bills[0]!.currentTypeName).toBe("Water bill");
+  });
+
+  test("history includes shares and payment state for client-side totals", async () => {
+    const types = await caller.billTypes.list();
+    const rent = types.find((type) => type.name === "Rent")!;
+    const boarderId = await caller.boarders.create({ name: "Ana" });
+    const billId = await caller.bills.create({
+      billTypeId: rent.id,
+      periodYear: 2026,
+      periodMonth: 11,
+      totalMinor: 1_000,
+      dueDate: null,
+      note: null,
+      shares: [{ boarderId, amountMinor: 1_000 }],
+    });
+
+    const detail = await caller.bills.get({ id: billId });
+    await caller.payments.record({
+      billShareId: detail!.shares[0]!.id,
+      amountMinor: 400,
+      paidAt: Date.now(),
+      note: null,
+    });
+
+    const history = await caller.bills.history();
+    const item = history.bills.find((row) => row.bill.id === billId)!;
+    expect(item.shares).toHaveLength(1);
+    expect(item.shares[0]!.state.paidMinor).toBe(400);
+    expect(item.summary.outstandingMinor).toBe(600);
+  });
 });
