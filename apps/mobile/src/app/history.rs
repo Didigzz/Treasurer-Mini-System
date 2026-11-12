@@ -5,7 +5,7 @@ use slint::{ModelRc, VecModel};
 use treasurer_core::models::*;
 use treasurer_core::money;
 
-use super::App;
+use super::{progress, App};
 use crate::{AppWindow, HistoryRow};
 
 impl App {
@@ -51,6 +51,8 @@ impl App {
                     expected: money::format_money(expected, &self.currency).into(),
                     applied: money::format_money(applied, &self.currency).into(),
                     outstanding: money::format_money(outstanding, &self.currency).into(),
+                    progress: progress(applied, expected),
+                    settled: outstanding <= 0,
                 }
             })
             .collect();

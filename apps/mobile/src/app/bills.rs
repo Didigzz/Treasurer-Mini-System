@@ -8,7 +8,7 @@ use treasurer_core::db::repository::now_ms;
 use treasurer_core::models::*;
 use treasurer_core::money;
 
-use super::App;
+use super::{progress, App};
 use crate::{AppWindow, PaymentRow, PickRow, ShareRow};
 
 pub(super) struct Pick {
@@ -82,8 +82,14 @@ impl App {
         };
         let detail = match self.db.bill_detail(&id) {
             Ok(Some(detail)) => detail,
-            Ok(None) => return self.message("Bill not found."),
-            Err(error) => return self.message(format!("{error:#}")),
+            Ok(None) => {
+                self.clear_detail_lists();
+                return self.message("Bill not found.");
+            }
+            Err(error) => {
+                self.clear_detail_lists();
+                return self.message(format!("{error:#}"));
+            }
         };
 
         self.share_ids = detail
@@ -112,17 +118,18 @@ impl App {
             subtitle.push_str(&format!(" · {note}"));
         }
         ui.set_detail_subtitle(subtitle.into());
-        ui.set_detail_summary(
-            format!(
-                "{} expected · {} collected · {} outstanding · {} change · {}",
-                money::format_money(detail.summary.expected_minor, &self.currency),
-                money::format_money(detail.summary.applied_minor, &self.currency),
-                money::format_money(detail.summary.outstanding_minor, &self.currency),
-                money::format_money(detail.summary.change_outstanding_minor, &self.currency),
-                detail.summary.status.label()
-            )
-            .into(),
+        let summary = &detail.summary;
+        ui.set_detail_status(summary.status.label().into());
+        ui.set_detail_archived(detail.bill.archived_at.is_some());
+        ui.set_detail_expected(money::format_money(summary.expected_minor, &self.currency).into());
+        ui.set_detail_collected(money::format_money(summary.applied_minor, &self.currency).into());
+        ui.set_detail_outstanding(
+            money::format_money(summary.outstanding_minor, &self.currency).into(),
         );
+        ui.set_detail_change(
+            money::format_money(summary.change_outstanding_minor, &self.currency).into(),
+        );
+        ui.set_detail_progress(progress(summary.applied_minor, summary.expected_minor));
 
         let shares: Vec<ShareRow> = detail
             .shares
@@ -132,9 +139,13 @@ impl App {
                 due: money::format_money(share.share.amount_due_minor, &self.currency).into(),
                 paid: money::format_money(share.state.paid_minor, &self.currency).into(),
                 balance: money::format_money(share.state.balance_minor, &self.currency).into(),
+                balance_input: money::minor_to_input_value(share.state.balance_minor.max(0))
+                    .into(),
                 change: money::format_money(share.state.change_outstanding_minor, &self.currency)
                     .into(),
                 status: share.state.status.label().into(),
+                has_balance: share.state.balance_minor > 0,
+                has_change: share.state.change_outstanding_minor > 0,
             })
             .collect();
         ui.set_shares(ModelRc::new(VecModel::from(shares)));
@@ -172,6 +183,8 @@ impl App {
                         change: money::format_money(payment.computed_change_minor, &self.currency)
                             .into(),
                         can_return,
+                        has_change: payment.computed_change_minor > 0,
+                        voided: !record.is_active(),
                     },
                     record.id.clone(),
                 ));
@@ -187,16 +200,20 @@ impl App {
         )));
     }
 
-    pub(super) fn open_bill(&mut self, index: usize) {
-        let Some(id) = self
-            .bill_ids
-            .get(index)
-            .or_else(|| self.ledger_bill_ids.get(index))
-            .cloned()
-        else {
+    /// Opens a bill from the dashboard list, or from the boarder ledger when
+    /// `from_ledger` is set (Back then returns to that ledger).
+    pub(super) fn open_bill(&mut self, index: usize, from_ledger: bool) {
+        let ids = if from_ledger {
+            &self.ledger_bill_ids
+        } else {
+            &self.bill_ids
+        };
+        let Some(id) = ids.get(index).cloned() else {
             return;
         };
+        self.clear_detail_lists();
         self.detail_bill = Some(id);
+        self.bill_from_ledger = from_ledger;
         self.ui().set_payment_amount("".into());
         self.ui().set_payment_date("".into());
         self.set_screen(10);
@@ -318,11 +335,11 @@ impl App {
             Ok(_) => {
                 self.year = year;
                 self.month = month;
-                self.message("Bill created.");
                 self.detail_bill = None;
                 self.set_screen(0);
-                self.refresh_dashboard();
                 self.refresh_history();
+                // After set_screen, which clears the banner.
+                self.notify("Bill created.");
             }
             Err(error) => self.message(format!("{error:#}")),
         }
@@ -330,7 +347,7 @@ impl App {
 
     pub(super) fn pay_share(&mut self, index: usize) {
         let Some(share_id) = self.share_ids.get(index).cloned() else {
-            return;
+            return self.message("That share is no longer available. Go back and reopen the bill.");
         };
         let ui = self.ui();
         let amount_text = ui.get_payment_amount();
@@ -351,12 +368,14 @@ impl App {
         }) {
             Ok(_) => {
                 ui.set_payment_amount("".into());
-                self.message(format!(
+                self.refresh_bill_detail();
+                self.refresh_dashboard();
+                // Last, so a refresh hiccup can't make a saved payment look
+                // failed (and invite a duplicate).
+                self.notify(format!(
                     "Payment of {} recorded.",
                     money::format_money(amount_minor, &self.currency)
                 ));
-                self.refresh_bill_detail();
-                self.refresh_dashboard();
             }
             Err(error) => self.message(format!("{error:#}")),
         }
@@ -364,14 +383,14 @@ impl App {
 
     pub(super) fn void_payment(&mut self, index: usize) {
         let Some(payment_id) = self.payment_ids.get(index).cloned() else {
-            return;
+            return self.message("That payment is no longer available. Go back and reopen the bill.");
         };
         let reason = self.ui().get_void_reason().to_string();
         match self.db.void_payment(&payment_id, &reason) {
             Ok(()) => {
-                self.message("Payment voided.");
                 self.refresh_bill_detail();
                 self.refresh_dashboard();
+                self.notify("Payment voided.");
             }
             Err(error) => self.message(format!("{error:#}")),
         }
@@ -379,12 +398,12 @@ impl App {
 
     pub(super) fn return_change(&mut self, index: usize) {
         let Some(payment_id) = self.payment_ids.get(index).cloned() else {
-            return;
+            return self.message("That payment is no longer available. Go back and reopen the bill.");
         };
         match self.db.mark_change_returned(&payment_id, now_ms(), None) {
             Ok(()) => {
-                self.message("Change marked as returned.");
                 self.refresh_bill_detail();
+                self.notify("Change marked as returned.");
             }
             Err(error) => self.message(format!("{error:#}")),
         }
@@ -400,14 +419,15 @@ impl App {
         };
         match self.db.set_bill_archived(&id, !archived) {
             Ok(()) => {
-                self.message(if archived {
+                // Return to where the bill was opened from (ledger or tab).
+                self.back();
+                self.refresh_dashboard();
+                // After back(), whose screen change clears the banner.
+                self.notify(if archived {
                     "Bill restored."
                 } else {
                     "Bill archived."
                 });
-                self.detail_bill = None;
-                self.set_screen(0);
-                self.refresh_dashboard();
             }
             Err(error) => self.message(format!("{error:#}")),
         }
@@ -420,18 +440,8 @@ pub(super) fn wire(app: &Rc<RefCell<App>>, ui: &AppWindow) {
         ui.on_open_bill(move |index| {
             let mut app = app.borrow_mut();
             let index = index.max(0) as usize;
-            if app.ui().get_screen() == 11 {
-                let id = app.ledger_bill_ids.get(index).cloned();
-                if let Some(id) = id {
-                    app.detail_bill = Some(id);
-                    app.ui().set_payment_amount("".into());
-                    app.ui().set_payment_date("".into());
-                    app.set_screen(10);
-                    app.refresh_bill_detail();
-                }
-            } else {
-                app.open_bill(index);
-            }
+            let from_ledger = app.ui().get_screen() == 11;
+            app.open_bill(index, from_ledger);
         });
     }
     {

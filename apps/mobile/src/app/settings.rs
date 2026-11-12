@@ -67,9 +67,9 @@ impl App {
         match self.db.create_bill_type(&name) {
             Ok(_) => {
                 self.ui().set_type_name("".into());
-                self.message("Bill type added.");
                 self.refresh_settings();
                 self.load_form_types();
+                self.notify("Bill type added.");
             }
             Err(error) => self.message(format!("{error:#}")),
         }
@@ -82,14 +82,14 @@ impl App {
         let archived = self.type_archived.get(index).copied().unwrap_or(false);
         match self.db.set_bill_type_archived(&id, !archived) {
             Ok(()) => {
-                self.message(if archived {
+                self.refresh_settings();
+                self.load_form_types();
+                self.refresh_dashboard();
+                self.notify(if archived {
                     "Bill type restored."
                 } else {
                     "Bill type archived."
                 });
-                self.refresh_settings();
-                self.load_form_types();
-                self.refresh_dashboard();
             }
             Err(error) => self.message(format!("{error:#}")),
         }
@@ -99,22 +99,28 @@ impl App {
         let ui = self.ui();
         let index = ui.get_currency_index().max(0) as usize;
         let Some((code, _)) = CURRENCY_OPTIONS.get(index) else {
+            self.refresh_settings();
             return self.message("Choose a currency.");
         };
         let allow = ui.get_allow_centavos();
 
-        if let Err(error) = self.db.set_currency_code(code) {
-            return self.message(format!("{error:#}"));
-        }
-        if let Err(error) = self.db.set_allow_centavos(allow) {
+        let saved = self
+            .db
+            .set_currency_code(code)
+            .and_then(|()| self.db.set_allow_centavos(allow));
+        if let Err(error) = saved {
+            // Re-read what is actually stored so the controls (and the
+            // in-memory currency) never show an unsaved value.
+            self.refresh_settings();
+            self.refresh_dashboard();
             return self.message(format!("{error:#}"));
         }
 
         self.currency = (*code).to_string();
         self.allow_centavos = allow;
-        self.message("Settings saved.");
         self.refresh_dashboard();
         self.refresh_settings();
+        self.notify("Settings saved.");
     }
 }
 

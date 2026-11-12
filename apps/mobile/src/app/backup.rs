@@ -24,8 +24,8 @@ impl App {
 
         let now = chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         let _ = self.db.set_last_backup_at(&now);
-        self.message(format!("Backup saved to {}", path.display()));
         self.refresh_settings();
+        self.notify(format!("Backup saved to {}", path.display()));
     }
 
     pub(super) fn import_backup(&mut self) {
@@ -69,18 +69,18 @@ impl App {
 
         match self.db.import_backup_json(&json) {
             Ok(()) => {
-                self.message(format!(
-                    "Restored from {}.",
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("backup")
-                ));
                 self.load_settings();
                 self.refresh_dashboard();
                 self.refresh_boarders();
                 self.refresh_history();
                 self.refresh_settings();
                 self.load_form_types();
+                self.notify(format!(
+                    "Restored from {}.",
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("backup")
+                ));
             }
             Err(error) => self.message(format!("{error:#}")),
         }

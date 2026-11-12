@@ -1,3 +1,7 @@
+// Row models filled from Rust (apps/mobile/src/app/*.rs).
+// Money values arrive pre-formatted; the boolean flags let the UI pick tone
+// and wording without parsing currency strings.
+
 export struct BillRow {
     title: string,
     subtitle: string,
@@ -10,15 +14,21 @@ export struct BillRow {
 
 export struct BalanceRow {
     name: string,
+    initials: string,
     amount: string,
     change: string,
+    has-due: bool,
+    has-change: bool,
 }
 
 export struct BoarderRow {
     name: string,
+    initials: string,
     amount: string,
     change: string,
     archived: bool,
+    has-due: bool,
+    has-change: bool,
 }
 
 export struct ShareRow {
@@ -26,8 +36,12 @@ export struct ShareRow {
     due: string,
     paid: string,
     balance: string,
+    // Plain decimal ("1250.00") used to prefill the payment amount.
+    balance-input: string,
     change: string,
     status: string,
+    has-balance: bool,
+    has-change: bool,
 }
 
 export struct PaymentRow {
@@ -36,6 +50,8 @@ export struct PaymentRow {
     amount: string,
     change: string,
     can-return: bool,
+    has-change: bool,
+    voided: bool,
 }
 
 export struct HistoryRow {
@@ -44,6 +60,8 @@ export struct HistoryRow {
     expected: string,
     applied: string,
     outstanding: string,
+    progress: float,
+    settled: bool,
 }
 
 export struct TypeRow {

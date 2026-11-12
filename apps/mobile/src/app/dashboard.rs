@@ -4,7 +4,7 @@ use treasurer_core::calculations::matches_boarder_filter;
 use treasurer_core::models::*;
 use treasurer_core::money;
 
-use super::App;
+use super::{initials, progress, App};
 use crate::{AppWindow, BalanceRow, BillRow};
 use std::{cell::RefCell, rc::Rc};
 
@@ -33,6 +33,10 @@ impl App {
         ui.set_total_change(
             money::format_money(data.totals.change_outstanding_minor, &self.currency).into(),
         );
+        ui.set_total_progress(progress(
+            data.totals.applied_minor,
+            data.totals.expected_minor,
+        ));
         ui.set_archived_note(
             if data.archived_bill_count > 0 {
                 format!(
@@ -93,9 +97,12 @@ impl App {
             .iter()
             .map(|summary| BalanceRow {
                 name: summary.boarder_name.clone().into(),
+                initials: initials(&summary.boarder_name).into(),
                 amount: money::format_money(summary.outstanding_minor, &self.currency).into(),
                 change: money::format_money(summary.change_outstanding_minor, &self.currency)
                     .into(),
+                has_due: summary.outstanding_minor > 0,
+                has_change: summary.change_outstanding_minor > 0,
             })
             .collect();
         ui.set_balances(ModelRc::new(VecModel::from(balances)));
