@@ -24,7 +24,7 @@ The visual language is a literal copy of the mock: dark translucent pill, colore
 
 ## 2. Reference
 
-- Mock file: `pill-navigation.png` at the repo root.
+- Mock file: `pill-navigation.png` next to this spec in `docs/specs/`.
 - Frame 1: idle pill (Dashboard active) + dark idle `+` circle.
 - Frame 2: `+` active — gradient circle, popover above it containing two rows (Reservations, Amenities) with a tail/arrow. In this app the popover has exactly one row, **Settings**.
 

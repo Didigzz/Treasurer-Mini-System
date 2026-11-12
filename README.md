@@ -10,7 +10,7 @@ month and per boarder, and export/restore everything as a JSON file.
 All records live **only on the device** in a local SQLite database (`treasurer.db`). There
 are no accounts, cloud sync, or analytics.
 
-See [installation.md](installation.md) for building and installing the Android APK.
+See [docs/installation.md](docs/installation.md) for building and installing the Android APK.
 
 ## Features
 
@@ -48,8 +48,13 @@ history queries, and a JSON backup export/restore round trip.
 ```
 apps/
   mobile/                  # Rust/Slint phone app (Cargo + xbuild)
+    src/app/               # One module per feature: dashboard, boarders, bills,
+                           #   history, settings, backup
 crates/
   treasurer-core/          # Rust domain, SQLite storage, backups, tests
+docs/
+  installation.md          # Building and installing the Android APK
+  specs/                   # Design specs and mocks
 ```
 
 ## Backup Format
