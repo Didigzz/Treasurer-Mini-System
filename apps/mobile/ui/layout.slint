@@ -1,0 +1,354 @@
+// Screen scaffolding: scrolling page body, top app bar, grouped list rows,
+// floating pill navigation and its menu.
+
+import { ScrollView } from "std-widgets.slint";
+import { Theme, Tone, Responsive } from "theme.slint";
+import { Icon, Icons } from "icons.slint";
+import { Divider, IconButton, Metric } from "components.slint";
+
+export { Responsive }
+
+// Scrolling body with a centred, width-capped column.
+export component Page {
+    in property <length> bottom-inset;
+
+    ScrollView {
+        width: 100%;
+        height: 100%;
+
+        VerticalLayout {
+            padding-left: Responsive.gutter;
+            padding-right: Responsive.gutter;
+            padding-top: Theme.space-2;
+            padding-bottom: root.bottom-inset + Theme.space-6;
+            spacing: Theme.space-6;
+            alignment: start;
+
+            @children
+        }
+    }
+}
+
+// A titled group of content on a page.
+export component Section {
+    VerticalLayout {
+        spacing: Theme.space-3;
+        @children
+    }
+}
+
+export component TopBar {
+    in property <string> title;
+    in property <bool> large;
+    in property <bool> can-go-back;
+    callback back();
+
+    height: root.large ? 60px : 56px;
+
+    HorizontalLayout {
+        padding-left: root.can-go-back ? Responsive.gutter - 10px : Responsive.gutter;
+        padding-right: Responsive.gutter;
+        spacing: 2px;
+
+        if root.can-go-back : VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: Icons.chevron-left;
+                label: "Back";
+                icon-size: 24px;
+                clicked => { root.back(); }
+            }
+        }
+
+        Text {
+            text: root.title;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            font-size: root.large ? Theme.text-title-lg + 2px : Theme.text-headline + 2px;
+            font-weight: root.large ? Theme.weight-bold : Theme.weight-semibold;
+            letter-spacing: root.large ? -0.4px : 0px;
+            color: Theme.text;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+        }
+
+        @children
+    }
+}
+
+// Card that groups list rows; rows draw their own dividers.
+export component ListCard inherits Rectangle {
+    background: Theme.surface;
+    border-radius: Theme.radius-lg;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    VerticalLayout {
+        @children
+    }
+}
+
+export component ListRow inherits Rectangle {
+    in property <bool> show-divider;
+    in property <bool> tappable: true;
+    in property <string> label;
+    callback clicked();
+
+    // Grow with the content; 64px keeps short rows comfortably tappable.
+    min-height: max(64px, content.min-height);
+    background: root.tappable && touch.pressed ? Theme.surface-pressed : transparent;
+    accessible-role: list-item;
+    accessible-label: root.label;
+    accessible-action-default => { if root.tappable { root.clicked(); } }
+
+    animate background { duration: Theme.fast; }
+
+    touch := TouchArea {
+        enabled: root.tappable;
+        clicked => { root.clicked(); }
+    }
+
+    if root.show-divider : Divider {
+        x: Theme.space-4;
+        y: 0;
+        width: parent.width - Theme.space-4;
+    }
+
+    content := VerticalLayout {
+        alignment: center;
+        @children
+    }
+}
+
+// Collected / Expected / Change due. Three columns on regular phones, stacked
+// label-value rows on narrow ones so currency amounts are never truncated.
+export component SummaryMetrics {
+    in property <string> collected;
+    in property <string> expected;
+    in property <string> change;
+
+    VerticalLayout {
+        if !Responsive.compact : HorizontalLayout {
+            spacing: Theme.space-3;
+            Metric {
+                horizontal-stretch: 1;
+                label: "Collected";
+                value: root.collected;
+                tone: Tone.success;
+            }
+            Metric {
+                horizontal-stretch: 1;
+                label: "Expected";
+                value: root.expected;
+            }
+            Metric {
+                horizontal-stretch: 1;
+                label: "Change due";
+                value: root.change;
+            }
+        }
+        if Responsive.compact : VerticalLayout {
+            spacing: Theme.space-2;
+            for item in [
+                { label: "Collected", value: root.collected },
+                { label: "Expected", value: root.expected },
+                { label: "Change due", value: root.change },
+            ] : HorizontalLayout {
+                Text {
+                    text: item.label;
+                    horizontal-stretch: 1;
+                    font-size: Theme.text-sub;
+                    color: Theme.text-muted;
+                }
+                Text {
+                    text: item.value;
+                    font-size: Theme.text-sub;
+                    font-weight: Theme.weight-semibold;
+                    color: Theme.text;
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Floating pill navigation (docs/specs/pill-navigation.md, adapted to Slint)
+// ---------------------------------------------------------------------------
+
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <bool> active;
+    callback clicked();
+
+    accessible-role: tab;
+    accessible-label: root.label;
+    accessible-item-selected: root.active;
+    accessible-action-default => { root.clicked(); }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 3px;
+
+        HorizontalLayout {
+            alignment: center;
+            Icon {
+                path: root.icon;
+                size: 24px;
+                stroke-width: 2px;
+                color: root.active ? #46C3A0 : Theme.chrome-text-muted;
+                animate color { duration: Theme.fast; }
+            }
+        }
+        Text {
+            text: root.label;
+            font-size: 11px;
+            font-weight: Theme.weight-semibold;
+            horizontal-alignment: center;
+            color: root.active ? Theme.chrome-text : Theme.chrome-text-muted;
+            overflow: elide;
+            animate color { duration: Theme.fast; }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    opacity: touch.pressed ? 0.8 : 1;
+}
+
+export component PillNav {
+    in property <int> active;
+    in property <bool> menu-open;
+    callback select(int);
+    callback toggle-menu();
+
+    property <length> fab-size: 56px;
+    property <length> gap: 12px;
+    property <length> pill-width: min(300px, root.width - 32px - root.fab-size - root.gap);
+    property <length> group-x: (root.width - root.pill-width - root.gap - root.fab-size) / 2;
+    out property <length> fab-right: root.group-x + root.pill-width + root.gap + root.fab-size;
+
+    height: Theme.nav-height;
+    accessible-role: tab-list;
+    accessible-label: "Main navigation";
+
+    pill := Rectangle {
+        x: root.group-x;
+        width: root.pill-width;
+        height: parent.height;
+        border-radius: self.height / 2;
+        background: Theme.chrome.with-alpha(0.97);
+        border-width: 1px;
+        border-color: Theme.chrome-border;
+        drop-shadow-blur: 18px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: #00000059;
+
+        property <length> item-width: (self.width - 8px) / 3;
+
+        Rectangle {
+            x: 4px + root.active * pill.item-width;
+            y: 4px;
+            width: pill.item-width;
+            height: parent.height - 8px;
+            border-radius: self.height / 2;
+            background: Theme.chrome-raised;
+            border-width: 1px;
+            border-color: #ffffff0f;
+
+            animate x { duration: Theme.medium; easing: ease-out; }
+        }
+
+        for tab[i] in [
+            { label: "Dashboard", icon: Icons.chart },
+            { label: "Boarders", icon: Icons.people },
+            { label: "History", icon: Icons.clock },
+        ] : NavItem {
+            x: 4px + i * pill.item-width;
+            y: 4px;
+            width: pill.item-width;
+            height: parent.height - 8px;
+            label: tab.label;
+            icon: tab.icon;
+            active: i == root.active;
+            clicked => { root.select(i); }
+        }
+    }
+
+    fab := Rectangle {
+        x: root.group-x + root.pill-width + root.gap;
+        y: (parent.height - root.fab-size) / 2;
+        width: root.fab-size;
+        height: root.fab-size;
+        border-radius: self.height / 2;
+        background: root.menu-open ? #46C3A0 : (fab-touch.pressed ? #3A3A3D : Theme.chrome-raised);
+        border-width: root.menu-open ? 0 : 1px;
+        border-color: #ffffff14;
+        drop-shadow-blur: 18px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: #00000059;
+        accessible-role: button;
+        accessible-label: root.menu-open ? "Close menu" : "More actions";
+        accessible-action-default => { root.toggle-menu(); }
+
+        animate background { duration: Theme.fast; }
+
+        Icon {
+            path: root.menu-open ? Icons.close : Icons.plus;
+            color: root.menu-open ? #062A21 : #FFFFFF;
+            size: 26px;
+            stroke-width: 2.2px;
+        }
+
+        fab-touch := TouchArea {
+            clicked => { root.toggle-menu(); }
+        }
+    }
+}
+
+export component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    callback clicked();
+
+    height: 52px;
+    border-radius: Theme.radius-md;
+    background: touch.pressed ? #ffffff10 : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 12px;
+
+        Rectangle {
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            background: #F4F4F6;
+            Icon {
+                path: root.icon;
+                color: #0B6E59;
+                size: 18px;
+                stroke-width: 2.1px;
+            }
+        }
+        Text {
+            text: root.text;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            font-size: Theme.text-body;
+            font-weight: Theme.weight-semibold;
+            color: Theme.chrome-text;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}

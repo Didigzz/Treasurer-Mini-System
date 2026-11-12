@@ -1,0 +1,124 @@
+import { Theme, Tone, Icon, Icons, Card, AppButton, ButtonKind, IconButton, TextField, StatusPill, Avatar, SectionHeader, EmptyState } from "../components.slint";
+import { Page, Section, ListCard, ListRow } from "../layout.slint";
+import { BoarderRow } from "../models.slint";
+
+export component BoardersScreen {
+    in property <length> bottom-inset;
+    in property <[BoarderRow]> boarders;
+    in-out property <string> new-boarder-name;
+
+    callback add-boarder(string);
+    callback open-ledger(int);
+    callback show-actions(int);
+
+    Page {
+        width: 100%;
+        height: 100%;
+        bottom-inset: root.bottom-inset;
+
+        Card {
+            VerticalLayout {
+                padding: Theme.space-4;
+                spacing: Theme.space-3;
+
+                Text {
+                    text: "Add a boarder";
+                    font-size: Theme.text-headline;
+                    font-weight: Theme.weight-semibold;
+                    color: Theme.text;
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-2;
+                    TextField {
+                        horizontal-stretch: 1;
+                        placeholder: "Full name";
+                        text <=> root.new-boarder-name;
+                        accepted => {
+                            if root.new-boarder-name != "" { root.add-boarder(root.new-boarder-name); }
+                        }
+                    }
+                    AppButton {
+                        text: "Add";
+                        icon: Icons.plus;
+                        enabled: root.new-boarder-name != "";
+                        clicked => { root.add-boarder(root.new-boarder-name); }
+                    }
+                }
+            }
+        }
+
+        Section {
+            SectionHeader {
+                title: "Everyone";
+                caption: root.boarders.length == 0 ? "" : root.boarders.length == 1 ? "1 boarder" : root.boarders.length + " boarders";
+            }
+
+            if root.boarders.length == 0 : Card {
+                EmptyState {
+                    icon: Icons.people;
+                    title: "No boarders yet";
+                    body: "Add everyone who shares bills in the house. You can rename or archive them later.";
+                }
+            }
+
+            if root.boarders.length > 0 : ListCard {
+                for boarder[i] in root.boarders : ListRow {
+                    show-divider: i > 0;
+                    label: boarder.name + (boarder.archived ? ", archived" : boarder.has-due ? ", " + boarder.amount + " outstanding" : ", paid up") + ". Opens ledger.";
+                    clicked => { root.open-ledger(i); }
+
+                    HorizontalLayout {
+                        padding-left: Theme.space-4;
+                        padding-right: Theme.space-1;
+                        padding-top: Theme.space-3;
+                        padding-bottom: Theme.space-3;
+                        spacing: Theme.space-3;
+
+                        Avatar {
+                            initials: boarder.initials;
+                            muted: boarder.archived;
+                        }
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            Text {
+                                text: boarder.name;
+                                font-size: Theme.text-body;
+                                font-weight: Theme.weight-semibold;
+                                color: boarder.archived ? Theme.text-muted : Theme.text;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: boarder.archived ? "Archived"
+                                    : boarder.has-due ? boarder.amount + " outstanding"
+                                    : "Paid up";
+                                font-size: Theme.text-sub;
+                                color: !boarder.archived && boarder.has-due ? Theme.danger : Theme.text-muted;
+                                overflow: elide;
+                            }
+                            if boarder.has-change && !boarder.archived : Text {
+                                text: boarder.change + " change to return";
+                                font-size: Theme.text-sub;
+                                color: Theme.warning;
+                                overflow: elide;
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: Icons.more;
+                                label: "Actions for " + boarder.name;
+                                tint: Theme.text-muted;
+                                icon-size: 24px;
+                                clicked => { root.show-actions(i); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

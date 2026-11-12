@@ -1,0 +1,171 @@
+import { Theme, Tone, Icon, Icons, Card, StatusPill, ProgressBar, Avatar, SectionHeader, EmptyState } from "../components.slint";
+import { Page, Section, ListCard, ListRow, SummaryMetrics } from "../layout.slint";
+import { ShareRow, PaymentRow } from "../models.slint";
+import { PaymentItem } from "bill.slint";
+
+export component LedgerScreen {
+    in property <length> bottom-inset;
+    in property <string> detail-title;
+    in property <string> detail-initials;
+    in property <string> detail-expected;
+    in property <string> detail-collected;
+    in property <string> detail-outstanding;
+    in property <string> detail-change;
+    in property <float> detail-progress;
+    in property <[ShareRow]> shares;
+    in property <[PaymentRow]> payments;
+
+    callback open-bill(int);
+
+    Page {
+        width: 100%;
+        height: 100%;
+        bottom-inset: root.bottom-inset;
+
+        Card {
+            VerticalLayout {
+                padding: Theme.space-5;
+                spacing: Theme.space-4;
+
+                HorizontalLayout {
+                    spacing: Theme.space-3;
+                    Avatar {
+                        initials: root.detail-initials;
+                        size: 52px;
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 2px;
+                        Text {
+                            text: root.detail-title;
+                            font-size: Theme.text-title;
+                            font-weight: Theme.weight-bold;
+                            color: Theme.text;
+                            wrap: word-wrap;
+                        }
+                        Text {
+                            text: "All bills and payments";
+                            font-size: Theme.text-sub;
+                            color: Theme.text-muted;
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 2px;
+                    Text {
+                        text: "Outstanding";
+                        font-size: Theme.text-sub;
+                        font-weight: Theme.weight-medium;
+                        color: Theme.text-muted;
+                    }
+                    Text {
+                        text: root.detail-outstanding;
+                        font-size: Theme.text-display - 4px;
+                        font-weight: Theme.weight-bold;
+                        letter-spacing: -0.5px;
+                        color: Theme.text;
+                    }
+                }
+                ProgressBar {
+                    value: root.detail-progress;
+                    tone: root.detail-progress >= 1 ? Tone.success : Tone.accent;
+                }
+                SummaryMetrics {
+                    collected: root.detail-collected;
+                    expected: root.detail-expected;
+                    change: root.detail-change;
+                }
+            }
+        }
+
+        Section {
+            SectionHeader {
+                title: "Bills";
+                caption: root.shares.length == 0 ? "" : "Tap a bill to record a payment";
+            }
+            if root.shares.length == 0 : Card {
+                EmptyState {
+                    icon: Icons.receipt;
+                    title: "No bills yet";
+                    body: "Bills this boarder is part of will show up here.";
+                }
+            }
+            if root.shares.length > 0 : ListCard {
+                for share[i] in root.shares : ListRow {
+                    show-divider: i > 0;
+                    label: share.name + ", " + share.status + ", balance " + share.balance + ". Opens bill.";
+                    clicked => { root.open-bill(i); }
+
+                    HorizontalLayout {
+                        padding-left: Theme.space-4;
+                        padding-right: Theme.space-3;
+                        padding-top: Theme.space-3;
+                        padding-bottom: Theme.space-3;
+                        spacing: Theme.space-3;
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 3px;
+                            HorizontalLayout {
+                                spacing: Theme.space-2;
+                                Text {
+                                    text: share.name;
+                                    font-size: Theme.text-body;
+                                    font-weight: Theme.weight-semibold;
+                                    color: Theme.text;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                                StatusPill {
+                                    text: share.status;
+                                    tone: Theme.status-tone(share.status);
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Text {
+                                text: share.has-balance ? share.balance + " left to pay" : "Fully paid";
+                                font-size: Theme.text-sub;
+                                font-weight: Theme.weight-medium;
+                                color: share.has-balance ? Theme.danger : Theme.success;
+                            }
+                            Text {
+                                text: share.paid + " paid of " + share.due;
+                                font-size: Theme.text-sub;
+                                color: Theme.text-muted;
+                                overflow: elide;
+                            }
+                        }
+                        Icon {
+                            path: Icons.chevron-right;
+                            color: Theme.text-faint;
+                            size: 18px;
+                        }
+                    }
+                }
+            }
+        }
+
+        Section {
+            SectionHeader {
+                title: "Payments";
+                caption: root.payments.length == 0 ? "" : root.payments.length == 1 ? "1 payment" : root.payments.length + " payments";
+            }
+            if root.payments.length == 0 : Card {
+                EmptyState {
+                    icon: Icons.cash;
+                    title: "No payments yet";
+                    body: "Payments recorded for this boarder appear here.";
+                }
+            }
+            if root.payments.length > 0 : ListCard {
+                for payment[i] in root.payments : PaymentItem {
+                    show-divider: i > 0;
+                    payment: payment;
+                }
+            }
+        }
+    }
+}

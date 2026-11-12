@@ -1,0 +1,305 @@
+import { Theme, Tone, Icon, Icons, Card, TapCard, AppButton, ButtonKind, IconButton, Segmented, StatusPill, ProgressBar, Avatar, SectionHeader, EmptyState } from "../components.slint";
+import { Page, Section, ListCard, ListRow, SummaryMetrics } from "../layout.slint";
+import { BillRow, BalanceRow } from "../models.slint";
+
+export component DashboardScreen {
+    in property <length> bottom-inset;
+    in property <string> period-label;
+    in property <string> total-expected;
+    in property <string> total-paid;
+    in property <string> total-outstanding;
+    in property <string> total-change;
+    in property <float> total-progress;
+    in property <string> archived-note;
+    in property <bool> include-archived;
+    in property <int> filter;
+    in property <[BillRow]> bills;
+    in property <[BalanceRow]> balances;
+
+    callback prev-month();
+    callback next-month();
+    callback set-filter(int);
+    callback open-bill(int);
+    callback open-boarder(int);
+    callback new-bill();
+    callback toggle-archived();
+
+    Page {
+        width: 100%;
+        height: 100%;
+        bottom-inset: root.bottom-inset;
+
+        // ---- Month switcher ----
+        Card {
+            height: 52px;
+            HorizontalLayout {
+                padding: 4px;
+                IconButton {
+                    icon: Icons.chevron-left;
+                    label: "Previous month";
+                    clicked => { root.prev-month(); }
+                }
+                Text {
+                    text: root.period-label;
+                    horizontal-stretch: 1;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: Theme.text-headline;
+                    font-weight: Theme.weight-semibold;
+                    color: Theme.text;
+                    accessible-role: AccessibleRole.text;
+                }
+                IconButton {
+                    icon: Icons.chevron-right;
+                    label: "Next month";
+                    clicked => { root.next-month(); }
+                }
+            }
+        }
+
+        // ---- Month summary ----
+        Card {
+            VerticalLayout {
+                padding: Theme.space-5;
+                spacing: Theme.space-4;
+
+                VerticalLayout {
+                    spacing: 2px;
+                    Text {
+                        text: "Outstanding this month";
+                        font-size: Theme.text-sub;
+                        font-weight: Theme.weight-medium;
+                        color: Theme.text-muted;
+                    }
+                    Text {
+                        text: root.total-outstanding;
+                        font-size: Theme.text-display;
+                        font-weight: Theme.weight-bold;
+                        letter-spacing: -0.6px;
+                        color: Theme.text;
+                        overflow: elide;
+                    }
+                }
+                ProgressBar {
+                    value: root.total-progress;
+                    tone: root.total-progress >= 1 ? Tone.success : Tone.accent;
+                }
+                SummaryMetrics {
+                    collected: root.total-paid;
+                    expected: root.total-expected;
+                    change: root.total-change;
+                }
+            }
+        }
+
+        // ---- Bills ----
+        Section {
+            SectionHeader {
+                title: "Bills";
+                caption: root.bills.length == 0 ? "" : root.bills.length == 1 ? "1 bill" : root.bills.length + " bills";
+                action-text: "New bill";
+                action-icon: Icons.plus;
+                action => { root.new-bill(); }
+            }
+
+            if root.bills.length == 0 : Card {
+                EmptyState {
+                    icon: Icons.receipt;
+                    title: "No bills for " + root.period-label;
+                    body: "Create a bill to split an expense among your boarders.";
+                    action-text: "Create a bill";
+                    action => { root.new-bill(); }
+                }
+            }
+
+            for bill[i] in root.bills : TapCard {
+                label: bill.title + ", " + bill.status + ", " + bill.paid + " of " + bill.amount + " collected";
+                clicked => { root.open-bill(i); }
+
+                VerticalLayout {
+                    padding: Theme.space-4;
+                    spacing: Theme.space-3;
+
+                    HorizontalLayout {
+                        spacing: Theme.space-3;
+
+                        Rectangle {
+                            width: 40px;
+                            height: 40px;
+                            border-radius: Theme.radius-md;
+                            background: Theme.accent-soft;
+                            Icon {
+                                path: Icons.receipt;
+                                color: Theme.on-accent-soft;
+                                size: 20px;
+                            }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            Text {
+                                text: bill.title;
+                                font-size: Theme.text-headline;
+                                font-weight: Theme.weight-semibold;
+                                color: Theme.text;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: bill.subtitle;
+                                font-size: Theme.text-sub;
+                                color: Theme.text-muted;
+                                overflow: elide;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            StatusPill {
+                                text: bill.status;
+                                tone: Theme.status-tone(bill.status);
+                            }
+                        }
+                    }
+
+                    if bill.review : HorizontalLayout {
+                        alignment: start;
+                        StatusPill {
+                            text: "Needs review";
+                            tone: Tone.warning;
+                        }
+                    }
+
+                    ProgressBar {
+                        value: bill.progress;
+                        tone: bill.progress >= 1 ? Tone.success : Tone.accent;
+                    }
+
+                    HorizontalLayout {
+                        spacing: Theme.space-2;
+                        Text {
+                            text: bill.paid + " collected";
+                            font-size: Theme.text-sub;
+                            font-weight: Theme.weight-semibold;
+                            color: Theme.text;
+                        }
+                        Text {
+                            text: "of " + bill.amount;
+                            horizontal-stretch: 1;
+                            horizontal-alignment: right;
+                            font-size: Theme.text-sub;
+                            color: Theme.text-muted;
+                        }
+                    }
+                }
+            }
+
+            if root.archived-note != "" : HorizontalLayout {
+                spacing: Theme.space-2;
+                padding-left: Theme.space-1;
+                Icon {
+                    path: Icons.archive;
+                    color: Theme.text-muted;
+                    size: 18px;
+                }
+                Text {
+                    text: root.archived-note;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                    font-size: Theme.text-sub;
+                    color: Theme.text-muted;
+                }
+                AppButton {
+                    text: root.include-archived ? "Hide" : "Show";
+                    kind: ButtonKind.ghost;
+                    compact: true;
+                    clicked => { root.toggle-archived(); }
+                }
+            }
+        }
+
+        // ---- Boarder balances ----
+        Section {
+            SectionHeader {
+                title: "Boarders this month";
+                caption: "Tap a boarder to see their ledger";
+            }
+
+            Segmented {
+                label: "Filter boarders";
+                options: ["All", "Unpaid", "Paid", "Change"];
+                selected: root.filter;
+                select(i) => { root.set-filter(i); }
+            }
+
+            if root.balances.length == 0 : Card {
+                EmptyState {
+                    icon: Icons.people;
+                    title: root.filter == 0 ? "No balances this month" : "Nobody matches this filter";
+                    body: root.filter == 0
+                        ? "Boarders appear here once they share a bill this month."
+                        : "Try another filter to see more boarders.";
+                    action-text: root.filter == 0 ? "" : "Show everyone";
+                    action => { root.set-filter(0); }
+                }
+            }
+
+            if root.balances.length > 0 : ListCard {
+                for balance[i] in root.balances : ListRow {
+                    show-divider: i > 0;
+                    label: balance.name + ", " + (balance.has-due ? balance.amount + " outstanding" : "paid up");
+                    clicked => { root.open-boarder(i); }
+
+                    HorizontalLayout {
+                        padding-left: Theme.space-4;
+                        padding-right: Theme.space-3;
+                        padding-top: Theme.space-3;
+                        padding-bottom: Theme.space-3;
+                        spacing: Theme.space-3;
+
+                        Avatar { initials: balance.initials; }
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            Text {
+                                text: balance.name;
+                                font-size: Theme.text-body;
+                                font-weight: Theme.weight-semibold;
+                                color: Theme.text;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: balance.has-change ? balance.change + " change to return" : balance.has-due ? "Outstanding" : "Paid up";
+                                font-size: Theme.text-sub;
+                                color: balance.has-change ? Theme.warning : Theme.text-muted;
+                                overflow: elide;
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            if balance.has-due : Text {
+                                text: balance.amount;
+                                font-size: Theme.text-body;
+                                font-weight: Theme.weight-semibold;
+                                color: Theme.danger;
+                                horizontal-alignment: right;
+                            }
+                            if !balance.has-due : StatusPill {
+                                text: "Paid";
+                                tone: Tone.success;
+                            }
+                        }
+
+                        Icon {
+                            path: Icons.chevron-right;
+                            color: Theme.text-faint;
+                            size: 18px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

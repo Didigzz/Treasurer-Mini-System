@@ -1,0 +1,111 @@
+import { Theme, Tone, Icon, Icons, Card, TapCard, StatusPill, ProgressBar, SectionHeader, EmptyState } from "../components.slint";
+import { Page, Section } from "../layout.slint";
+import { HistoryRow } from "../models.slint";
+
+export component HistoryScreen {
+    in property <length> bottom-inset;
+    in property <[HistoryRow]> history;
+
+    callback open-history(int);
+
+    Page {
+        width: 100%;
+        height: 100%;
+        bottom-inset: root.bottom-inset;
+
+        Section {
+            SectionHeader {
+                title: "Past months";
+                caption: root.history.length == 0 ? "" : "Tap a month to open it on the dashboard";
+            }
+
+            if root.history.length == 0 : Card {
+                EmptyState {
+                    icon: Icons.clock;
+                    title: "No history yet";
+                    body: "Bills you create show up here, grouped by month.";
+                }
+            }
+
+            for row[i] in root.history : TapCard {
+                label: row.period + ", " + row.bills + ", " + row.applied + " of " + row.expected + " collected"
+                    + (row.settled ? ", settled" : ", " + row.outstanding + " outstanding");
+                clicked => { root.open-history(i); }
+
+                VerticalLayout {
+                    padding: Theme.space-4;
+                    spacing: Theme.space-3;
+
+                    HorizontalLayout {
+                        spacing: Theme.space-3;
+
+                        Rectangle {
+                            width: 40px;
+                            height: 40px;
+                            border-radius: Theme.radius-md;
+                            background: Theme.surface-sunken;
+                            Icon {
+                                path: Icons.calendar;
+                                color: Theme.text-muted;
+                                size: 20px;
+                            }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            Text {
+                                text: row.period;
+                                font-size: Theme.text-headline;
+                                font-weight: Theme.weight-semibold;
+                                color: Theme.text;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: row.bills + " · " + row.expected + " expected";
+                                font-size: Theme.text-sub;
+                                color: Theme.text-muted;
+                                overflow: elide;
+                            }
+                        }
+                        if row.settled : VerticalLayout {
+                            alignment: center;
+                            StatusPill {
+                                text: "Settled";
+                                tone: Tone.success;
+                            }
+                        }
+                        Icon {
+                            path: Icons.chevron-right;
+                            color: Theme.text-faint;
+                            size: 18px;
+                        }
+                    }
+
+                    ProgressBar {
+                        value: row.progress;
+                        tone: row.settled ? Tone.success : Tone.accent;
+                    }
+
+                    HorizontalLayout {
+                        spacing: Theme.space-2;
+                        Text {
+                            text: row.applied + " collected";
+                            font-size: Theme.text-sub;
+                            font-weight: Theme.weight-semibold;
+                            color: Theme.text;
+                        }
+                        Text {
+                            text: row.settled ? "" : row.outstanding + " outstanding";
+                            horizontal-stretch: 1;
+                            horizontal-alignment: right;
+                            font-size: Theme.text-sub;
+                            font-weight: Theme.weight-medium;
+                            color: Theme.danger;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

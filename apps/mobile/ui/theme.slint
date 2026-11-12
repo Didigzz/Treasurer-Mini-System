@@ -1,0 +1,124 @@
+// Design tokens for the Treasurer app.
+//
+// Direction: a calm "ledger" look. Warm paper-neutral surfaces, ink text,
+// one deep-green accent reserved for primary actions and money that has been
+// collected, and semantic tones (success / warning / danger) that are always
+// paired with a text label so status never relies on colour alone.
+// Light and dark follow the system colour scheme.
+
+import { Palette } from "std-widgets.slint";
+
+export enum Tone { neutral, accent, success, warning, danger }
+
+// Window-size facts, fed by AppWindow. Content is centred with a capped width
+// on tablets, and summary rows stack on narrow phones so amounts never elide.
+export global Responsive {
+    in-out property <length> width: 420px;
+    out property <bool> compact: width < 380px;
+    out property <length> gutter: max(16px, (width - 640px) / 2);
+}
+
+export global Theme {
+    out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+
+    // ---- Surfaces ----
+    out property <color> bg: dark ? #121311 : #F5F4EF;
+    out property <color> surface: dark ? #1C1D1A : #FFFFFF;
+    out property <color> surface-sunken: dark ? #252622 : #EFEDE6;
+    out property <color> surface-pressed: dark ? #2B2C28 : #E9E7DF;
+    out property <color> border: dark ? #30322D : #E4E1D8;
+    out property <color> divider: dark ? #2A2B27 : #EEECE5;
+    out property <color> scrim: dark ? #000000a6 : #1a18147a;
+
+    // ---- Text ----
+    out property <color> text: dark ? #EEEDE8 : #1B1A17;
+    out property <color> text-muted: dark ? #A9A79F : #615E57;
+    out property <color> text-faint: dark ? #7E7C75 : #8C8880;
+
+    // ---- Accent (deep ledger green) ----
+    out property <color> accent: dark ? #46C3A0 : #0B6E59;
+    out property <color> accent-pressed: dark ? #5DD0AF : #085746;
+    out property <color> on-accent: dark ? #062A21 : #FFFFFF;
+    out property <color> accent-soft: dark ? #173229 : #E1F0EA;
+    out property <color> on-accent-soft: dark ? #7FDDBF : #0A5A49;
+
+    // ---- Semantic tones ----
+    out property <color> success: dark ? #6FCB93 : #1D7444;
+    out property <color> success-soft: dark ? #18301F : #E3F2E8;
+    out property <color> warning: dark ? #EDB65E : #8A5300;
+    out property <color> warning-soft: dark ? #352A12 : #FBEFD8;
+    out property <color> danger: dark ? #F28A8D : #B3261E;
+    out property <color> danger-soft: dark ? #3B1D1E : #FBE6E4;
+
+    // ---- Navigation chrome (always dark, per docs/specs/pill-navigation.md) ----
+    out property <color> chrome: #161618;
+    out property <color> chrome-raised: #2C2C2E;
+    out property <color> chrome-border: #ffffff1a;
+    out property <color> chrome-text: #FFFFFF;
+    out property <color> chrome-text-muted: dark ? #9C9CA3 : #B4B4BA;
+
+    // ---- Spacing scale (4pt grid) ----
+    out property <length> space-1: 4px;
+    out property <length> space-2: 8px;
+    out property <length> space-3: 12px;
+    out property <length> space-4: 16px;
+    out property <length> space-5: 20px;
+    out property <length> space-6: 24px;
+    out property <length> space-8: 32px;
+
+    // ---- Radii ----
+    out property <length> radius-sm: 8px;
+    out property <length> radius-md: 12px;
+    out property <length> radius-lg: 16px;
+    out property <length> radius-xl: 22px;
+
+    // ---- Sizes ----
+    out property <length> touch: 44px;
+    out property <length> field-height: 48px;
+    out property <length> gutter: 16px;
+    out property <length> max-content: 640px;
+    out property <length> nav-height: 64px;
+
+    // ---- Type scale ----
+    out property <length> text-display: 32px;
+    out property <length> text-title-lg: 26px;
+    out property <length> text-title: 20px;
+    out property <length> text-headline: 16px;
+    out property <length> text-body: 15px;
+    out property <length> text-sub: 13px;
+    out property <length> text-caption: 12px;
+
+    out property <int> weight-regular: 400;
+    out property <int> weight-medium: 500;
+    out property <int> weight-semibold: 600;
+    out property <int> weight-bold: 700;
+
+    // ---- Motion ----
+    out property <duration> fast: 120ms;
+    out property <duration> medium: 220ms;
+
+    public pure function tone-fg(tone: Tone) -> color {
+        if tone == Tone.accent { return accent; }
+        if tone == Tone.success { return success; }
+        if tone == Tone.warning { return warning; }
+        if tone == Tone.danger { return danger; }
+        return text-muted;
+    }
+
+    public pure function tone-bg(tone: Tone) -> color {
+        if tone == Tone.accent { return accent-soft; }
+        if tone == Tone.success { return success-soft; }
+        if tone == Tone.warning { return warning-soft; }
+        if tone == Tone.danger { return danger-soft; }
+        return surface-sunken;
+    }
+
+    // Status labels come from treasurer-core (BillStatus / ShareStatus).
+    public pure function status-tone(status: string) -> Tone {
+        if status == "Paid" || status == "Settled" { return Tone.success; }
+        if status == "Partial" { return Tone.warning; }
+        if status == "Unpaid" { return Tone.danger; }
+        if status == "Open" { return Tone.accent; }
+        return Tone.neutral;
+    }
+}

@@ -1,0 +1,200 @@
+import { Theme, Tone, Icon, Icons, Card, AppButton, ButtonKind, TextField, SelectField, SectionHeader, EmptyState } from "../components.slint";
+import { Page, Section, ListCard, ListRow, Responsive } from "../layout.slint";
+import { PickRow } from "../models.slint";
+
+component Checkmark inherits Rectangle {
+    in property <bool> checked;
+
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background: checked ? Theme.accent : transparent;
+    border-width: checked ? 0 : 2px;
+    border-color: Theme.text-faint;
+
+    animate background { duration: Theme.fast; }
+
+    if root.checked : Icon {
+        path: Icons.check;
+        color: Theme.on-accent;
+        size: 16px;
+        stroke-width: 2.6px;
+    }
+}
+
+export component NewBillScreen {
+    in property <length> bottom-inset;
+    in property <string> bill-type-label;
+    in property <bool> has-bill-types;
+    in property <[PickRow]> picks;
+    in-out property <string> bill-year;
+    in-out property <string> bill-month;
+    in-out property <string> bill-total;
+    in-out property <string> bill-due;
+    in-out property <string> bill-note;
+
+    callback pick-type();
+    callback pick-toggle(int);
+    callback pick-amount(int, string);
+    callback create-bill();
+    callback go-settings();
+    callback go-boarders();
+
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        Page {
+            vertical-stretch: 1;
+            bottom-inset: 0px;
+
+            Section {
+                SectionHeader { title: "Details"; }
+                Card {
+                    VerticalLayout {
+                        padding: Theme.space-4;
+                        spacing: Theme.space-4;
+
+                        SelectField {
+                            label: "Bill type";
+                            value: root.has-bill-types ? root.bill-type-label : "";
+                            placeholder: "No bill types yet";
+                            clicked => {
+                                if root.has-bill-types { root.pick-type(); } else { root.go-settings(); }
+                            }
+                        }
+                        if !root.has-bill-types : HorizontalLayout {
+                            alignment: start;
+                            AppButton {
+                                text: "Add a bill type in Settings";
+                                kind: ButtonKind.ghost;
+                                compact: true;
+                                clicked => { root.go-settings(); }
+                            }
+                        }
+
+                        TextField {
+                            label: "Total amount";
+                            placeholder: "0.00";
+                            text <=> root.bill-total;
+                        }
+
+                        HorizontalLayout {
+                            spacing: Theme.space-3;
+                            TextField {
+                                horizontal-stretch: 1;
+                                label: "Month";
+                                placeholder: "1–12";
+                                input-type: InputType.number;
+                                text <=> root.bill-month;
+                            }
+                            TextField {
+                                horizontal-stretch: 1;
+                                label: "Year";
+                                placeholder: "2026";
+                                input-type: InputType.number;
+                                text <=> root.bill-year;
+                            }
+                        }
+
+                        TextField {
+                            label: "Due date (optional)";
+                            placeholder: "YYYY-MM-DD";
+                            text <=> root.bill-due;
+                        }
+
+                        TextField {
+                            label: "Note (optional)";
+                            placeholder: "e.g. Reading Oct 12 – Nov 11";
+                            text <=> root.bill-note;
+                        }
+                    }
+                }
+            }
+
+            Section {
+                SectionHeader {
+                    title: "Split among";
+                    caption: "Leave amounts empty to split equally";
+                }
+
+                if root.picks.length == 0 : Card {
+                    EmptyState {
+                        icon: Icons.people;
+                        title: "No active boarders";
+                        body: "Add boarders before creating a bill.";
+                        action-text: "Go to Boarders";
+                        action => { root.go-boarders(); }
+                    }
+                }
+
+                if root.picks.length > 0 : ListCard {
+                    for pick[i] in root.picks : ListRow {
+                        show-divider: i > 0;
+                        label: pick.name + (pick.selected ? ", selected" : ", not selected");
+                        clicked => { root.pick-toggle(i); }
+
+                        HorizontalLayout {
+                            padding-left: Theme.space-4;
+                            padding-right: Theme.space-3;
+                            padding-top: Theme.space-2;
+                            padding-bottom: Theme.space-2;
+                            spacing: Theme.space-3;
+
+                            VerticalLayout {
+                                alignment: center;
+                                Checkmark { checked: pick.selected; }
+                            }
+                            Text {
+                                text: pick.name;
+                                horizontal-stretch: 1;
+                                vertical-alignment: center;
+                                font-size: Theme.text-body;
+                                font-weight: pick.selected ? Theme.weight-semibold : Theme.weight-regular;
+                                color: Theme.text;
+                                overflow: elide;
+                            }
+                            if pick.selected : TextField {
+                                width: Responsive.compact ? 104px : 128px;
+                                placeholder: "Equal";
+                                text: pick.amount;
+                                edited(value) => { root.pick-amount(i, value); }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: "Custom amounts must add up to the total. With an equal split, leftover centavos go to the first selected boarders.";
+                    font-size: Theme.text-caption;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        // Sticky action bar, lifted above the keyboard / gesture area.
+        Rectangle {
+            background: Theme.bg;
+
+            Rectangle {
+                y: 0;
+                height: 1px;
+                background: Theme.divider;
+            }
+
+            HorizontalLayout {
+                padding-left: Responsive.gutter;
+                padding-right: Responsive.gutter;
+                padding-top: Theme.space-3;
+                padding-bottom: Theme.space-3 + root.bottom-inset;
+                AppButton {
+                    horizontal-stretch: 1;
+                    text: "Create bill";
+                    icon: Icons.check;
+                    enabled: root.has-bill-types && root.picks.length > 0;
+                    clicked => { root.create-bill(); }
+                }
+            }
+        }
+    }
+}

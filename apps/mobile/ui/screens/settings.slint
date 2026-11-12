@@ -1,0 +1,194 @@
+import { Theme, Tone, Icon, Icons, Card, AppButton, ButtonKind, TextField, SelectField, Toggle, StatusPill, SectionHeader, Divider, EmptyState } from "../components.slint";
+import { Page, Section, ListCard, ListRow } from "../layout.slint";
+import { TypeRow } from "../models.slint";
+
+export component SettingsScreen {
+    in property <length> bottom-inset;
+    in property <string> currency-label;
+    in property <bool> allow-centavos;
+    in property <string> last-backup;
+    in property <string> app-version;
+    in property <[TypeRow]> types;
+    in-out property <string> type-name;
+
+    callback pick-currency();
+    callback toggle-centavos();
+    callback add-bill-type(string);
+    callback archive-type(int);
+    callback export-backup();
+    callback restore-backup();
+
+    Page {
+        width: 100%;
+        height: 100%;
+        bottom-inset: root.bottom-inset;
+
+        // ---- Money ----
+        Section {
+            SectionHeader {
+                title: "Money";
+                caption: "Changes are saved right away";
+            }
+            Card {
+                VerticalLayout {
+                    padding: Theme.space-4;
+                    spacing: Theme.space-4;
+
+                    SelectField {
+                        label: "Currency";
+                        value: root.currency-label;
+                        clicked => { root.pick-currency(); }
+                    }
+
+                    Divider { }
+
+                    Rectangle {
+                        TouchArea {
+                            clicked => { root.toggle-centavos(); }
+                        }
+                        HorizontalLayout {
+                            spacing: Theme.space-3;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                spacing: 2px;
+                                Text {
+                                    text: "Allow centavos";
+                                    font-size: Theme.text-body;
+                                    font-weight: Theme.weight-semibold;
+                                    color: Theme.text;
+                                }
+                                Text {
+                                    text: "Accept amounts like 1,250.50. Turn off to require whole amounts.";
+                                    font-size: Theme.text-sub;
+                                    color: Theme.text-muted;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Toggle {
+                                    label: "Allow centavos";
+                                    checked: root.allow-centavos;
+                                    toggled => { root.toggle-centavos(); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- Bill types ----
+        Section {
+            SectionHeader {
+                title: "Bill types";
+                caption: "Categories you choose from when creating a bill";
+            }
+            Card {
+                VerticalLayout {
+                    padding: Theme.space-4;
+                    HorizontalLayout {
+                        spacing: Theme.space-2;
+                        TextField {
+                            horizontal-stretch: 1;
+                            placeholder: "e.g. Electricity, Water, Wi-Fi";
+                            text <=> root.type-name;
+                            accepted => {
+                                if root.type-name != "" { root.add-bill-type(root.type-name); }
+                            }
+                        }
+                        AppButton {
+                            text: "Add";
+                            icon: Icons.plus;
+                            enabled: root.type-name != "";
+                            clicked => { root.add-bill-type(root.type-name); }
+                        }
+                    }
+                }
+            }
+            if root.types.length > 0 : ListCard {
+                for type[i] in root.types : ListRow {
+                    show-divider: i > 0;
+                    tappable: false;
+                    label: type.name + ", " + type.count + (type.archived ? ", archived" : "");
+
+                    HorizontalLayout {
+                        padding-left: Theme.space-4;
+                        padding-right: Theme.space-2;
+                        padding-top: Theme.space-2;
+                        padding-bottom: Theme.space-2;
+                        spacing: Theme.space-3;
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            Text {
+                                text: type.name;
+                                font-size: Theme.text-body;
+                                font-weight: Theme.weight-semibold;
+                                color: type.archived ? Theme.text-muted : Theme.text;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: type.archived ? type.count + " · Archived" : type.count;
+                                font-size: Theme.text-sub;
+                                color: Theme.text-muted;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            AppButton {
+                                text: type.archived ? "Restore" : "Archive";
+                                kind: ButtonKind.ghost;
+                                compact: true;
+                                clicked => { root.archive-type(i); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- Backup ----
+        Section {
+            SectionHeader {
+                title: "Backup & restore";
+                caption: "Last backup: " + root.last-backup;
+            }
+            Card {
+                VerticalLayout {
+                    padding: Theme.space-4;
+                    spacing: Theme.space-3;
+
+                    Text {
+                        text: "Backups are saved as JSON files in the app's folder. Export one regularly and before changing phones.";
+                        font-size: Theme.text-sub;
+                        color: Theme.text-muted;
+                        wrap: word-wrap;
+                    }
+                    AppButton {
+                        text: "Export backup";
+                        icon: Icons.download;
+                        kind: ButtonKind.secondary;
+                        clicked => { root.export-backup(); }
+                    }
+                    AppButton {
+                        text: "Restore newest backup";
+                        icon: Icons.upload;
+                        kind: ButtonKind.danger-soft;
+                        clicked => { root.restore-backup(); }
+                    }
+                }
+            }
+        }
+
+        Text {
+            text: root.app-version;
+            horizontal-alignment: center;
+            font-size: Theme.text-caption;
+            color: Theme.text-faint;
+        }
+    }
+}
