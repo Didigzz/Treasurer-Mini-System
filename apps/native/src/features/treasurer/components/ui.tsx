@@ -9,6 +9,8 @@ import {
   View,
   type TextInputProps,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { withUniwind } from "uniwind";
 
 import { Container } from "@/components/container";
 
@@ -19,13 +21,33 @@ export function Screen({
   children,
   className,
   scrollable = true,
-}: PropsWithChildren<{ className?: string; scrollable?: boolean }>) {
+  topInset = false,
+  bottomClearance = 0,
+}: PropsWithChildren<{
+  className?: string;
+  scrollable?: boolean;
+  /** Adds the status-bar safe area because the screen has no navigation header. */
+  topInset?: boolean;
+  /** Extra bottom padding so floating chrome does not cover the last row. */
+  bottomClearance?: number;
+}>) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <Container className={cn("px-4 pb-8", className)} isScrollable={scrollable}>
+    <Container
+      className={cn("px-4", className)}
+      isScrollable={scrollable}
+      contentPaddingTop={topInset ? insets.top + 8 : 0}
+      contentPaddingBottom={bottomClearance}
+    >
       {children}
     </Container>
   );
 }
+
+// Ionicons ignores `className` unless it is wrapped: raw icons would always
+// paint in their default black and disappear on dark surfaces.
+export const StyledIonicons = withUniwind(Ionicons);
 
 export function SectionHeader({
   title,
@@ -363,6 +385,8 @@ export function MonthSwitcher({
   onChange: (year: number, month: number) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const foreground = useThemeColor("foreground");
+  const muted = useThemeColor("muted");
 
   return (
     <>
@@ -376,7 +400,7 @@ export function MonthSwitcher({
             onChange(next.year, next.month);
           }}
         >
-          <Ionicons name="chevron-back" size={22} className="text-foreground" />
+          <Ionicons name="chevron-back" size={22} color={foreground} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -387,7 +411,7 @@ export function MonthSwitcher({
           <Text className="text-base font-semibold text-foreground">
             {formatPeriod(year, month)}
           </Text>
-          <Ionicons name="chevron-down" size={15} className="text-muted" />
+          <Ionicons name="chevron-down" size={15} color={muted} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -398,7 +422,7 @@ export function MonthSwitcher({
             onChange(next.year, next.month);
           }}
         >
-          <Ionicons name="chevron-forward" size={22} className="text-foreground" />
+          <Ionicons name="chevron-forward" size={22} color={foreground} />
         </Pressable>
       </View>
 
@@ -415,7 +439,7 @@ export function MonthSwitcher({
             className="h-10 w-10 items-center justify-center"
             onPress={() => onChange(year - 1, month)}
           >
-            <Ionicons name="chevron-back" size={20} className="text-foreground" />
+            <Ionicons name="chevron-back" size={20} color={foreground} />
           </Pressable>
           <Text className="text-lg font-semibold text-foreground">{year}</Text>
           <Pressable
@@ -424,7 +448,7 @@ export function MonthSwitcher({
             className="h-10 w-10 items-center justify-center"
             onPress={() => onChange(year + 1, month)}
           >
-            <Ionicons name="chevron-forward" size={20} className="text-foreground" />
+            <Ionicons name="chevron-forward" size={20} color={foreground} />
           </Pressable>
         </View>
         <View className="flex-row flex-wrap gap-2">
@@ -503,15 +527,6 @@ export function SummaryCard({
       >
         {value}
       </Text>
-    </View>
-  );
-}
-
-export function LoadingBlock({ label = "Loading…" }: { label?: string }) {
-  return (
-    <View className="items-center justify-center py-12">
-      <ActivityIndicator />
-      <Text className="mt-3 text-sm text-muted">{label}</Text>
     </View>
   );
 }

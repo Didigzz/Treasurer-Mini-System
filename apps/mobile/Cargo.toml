@@ -1,0 +1,38 @@
+[package]
+name = "treasurer-mobile"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Boarding house treasurer Slint app"
+
+[lib]
+name = "treasurer_mobile"
+path = "src/lib.rs"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "treasurer"
+path = "src/main.rs"
+
+[build-dependencies]
+slint-build = "1.18"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde_json = "1"
+treasurer-core = { path = "../../crates/treasurer-core" }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+slint = "1.18"
+
+[target.'cfg(target_os = "android")'.dependencies]
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-android-activity-06"] }
+
+[package.metadata.android]
+package = "com.anonymous.mybettertapp"
+apk_name = "boarding-house-treasurer"
+version_code = 2
+version_name = "1.1.0"
+label = "Boarding House Treasurer"
+build_targets = ["aarch64-linux-android"]

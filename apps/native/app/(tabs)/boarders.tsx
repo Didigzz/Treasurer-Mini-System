@@ -10,15 +10,17 @@ import {
   EmptyState,
   ErrorBlock,
   FormField,
-  LoadingBlock,
   Screen,
+  StyledIonicons,
 } from "@/src/features/treasurer/components/ui";
+import { CardListSkeleton } from "@/src/features/treasurer/components/skeleton";
 import { formatMoney } from "@my-better-t-app/api/treasurer/money";
 import {
   useAppSettings,
   useBoarders,
   useCreateBoarder,
 } from "@/src/features/treasurer/queries";
+import { PILL } from "@/components/navigation/pill-theme";
 
 type BoarderTab = "active" | "archived";
 
@@ -32,7 +34,6 @@ export default function BoardersScreen() {
   const appSettings = useAppSettings();
   const createBoarder = useCreateBoarder();
   const currency = appSettings.data?.currencyCode ?? "PHP";
-  const accent = useThemeColor("accent");
   const muted = useThemeColor("muted");
 
   const active = useMemo(
@@ -79,14 +80,11 @@ export default function BoardersScreen() {
   }
 
   return (
-    <Screen>
-      <View className="flex-row items-start justify-between gap-3 pt-5">
-        <View className="flex-1">
-          <Text className="text-2xl font-semibold text-foreground">Boarders</Text>
-          <Text className="mt-1 text-sm text-muted">
-            Names only. Archive people when they move out; their history stays intact.
-          </Text>
-        </View>
+    <Screen topInset bottomClearance={PILL.clearance}>
+      <View className="flex-row items-center justify-between gap-3 pt-4">
+        <Text className="flex-1 text-sm text-muted">
+          Names only. Archive people when they move out; their history stays intact.
+        </Text>
         <Button
           size="sm"
           onPress={() => {
@@ -94,7 +92,7 @@ export default function BoardersScreen() {
             setAddOpen(true);
           }}
         >
-          <Ionicons name="add" size={17} color={accent} />
+          <StyledIonicons name="add" size={17} className="text-accent-foreground" />
           <Button.Label>Add</Button.Label>
         </Button>
       </View>
@@ -130,7 +128,7 @@ export default function BoardersScreen() {
 
       <View className="mt-4">
         {boarders.isLoading ? (
-          <LoadingBlock label="Loading boarders…" />
+          <CardListSkeleton rows={4} />
         ) : boarders.isError ? (
           <ErrorBlock
             message="The boarder list could not be loaded."
@@ -155,6 +153,7 @@ export default function BoardersScreen() {
               accessibilityRole="button"
               accessibilityLabel={`${boarder.name}, ${boarder.status}`}
               className="mb-2"
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
               onPress={() =>
                 router.push({ pathname: "/boarders/[id]", params: { id: boarder.id } })
               }

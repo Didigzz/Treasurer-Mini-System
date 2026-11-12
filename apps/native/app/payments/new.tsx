@@ -13,10 +13,14 @@ import {
   EmptyState,
   ErrorBlock,
   FormField,
-  LoadingBlock,
   Screen,
   ShareStatusBadge,
 } from "@/src/features/treasurer/components/ui";
+import {
+  FormSkeleton,
+  Skeleton,
+  TitleSkeleton,
+} from "@/src/features/treasurer/components/skeleton";
 import {
   formatDate,
   formatDateTime,
@@ -82,7 +86,16 @@ export default function PaymentScreen() {
   if (context.isLoading) {
     return (
       <Screen>
-        <LoadingBlock label="Loading payment details…" />
+        <TitleSkeleton />
+        <Surface variant="secondary" className="mt-4 rounded-2xl p-4">
+          <Skeleton className="h-2.5 w-20" />
+          <Skeleton className="mt-2 h-7 w-28" />
+          <View className="mt-3 flex-row gap-5">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3 w-20" />
+          </View>
+        </Surface>
+        <FormSkeleton fields={3} />
       </Screen>
     );
   }

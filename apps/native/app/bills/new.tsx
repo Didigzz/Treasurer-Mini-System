@@ -15,11 +15,15 @@ import {
   EmptyState,
   ErrorBlock,
   FormField,
-  LoadingBlock,
   MonthSwitcher,
   Screen,
   SectionHeader,
 } from "@/src/features/treasurer/components/ui";
+import {
+  ChipRowSkeleton,
+  FormSkeleton,
+  TitleSkeleton,
+} from "@/src/features/treasurer/components/skeleton";
 import {
   currentPeriod,
   formatDateOnly,
@@ -370,7 +374,8 @@ export default function BillFormScreen() {
   if (editId && detail.isLoading) {
     return (
       <Screen>
-        <LoadingBlock label="Loading bill…" />
+        <TitleSkeleton />
+        <FormSkeleton fields={3} />
       </Screen>
     );
   }
@@ -436,7 +441,7 @@ export default function BillFormScreen() {
           <FormField label="Due date (optional)">
             <Pressable
               accessibilityRole="button"
-              className="min-h-12 flex-row items-center justify-between rounded-xl border border-separator px-3"
+              className="min-h-12 flex-row items-center justify-between rounded-xl border border-separator bg-surface px-3"
               onPress={() => setDatePickerOpen(true)}
             >
               <Text className={dueDate ? "text-sm text-foreground" : "text-sm text-muted"}>
@@ -543,7 +548,10 @@ export default function BillFormScreen() {
       ) : null}
 
       {types.isLoading ? (
-        <LoadingBlock label="Loading bill types…" />
+        <View className="mt-4">
+          <ChipRowSkeleton />
+          <FormSkeleton fields={3} />
+        </View>
       ) : (
         <>
           <SectionHeader title="Bill type" subtitle="One type per bill." />
@@ -610,7 +618,7 @@ export default function BillFormScreen() {
           <FormField label="Due date (optional)">
             <Pressable
               accessibilityRole="button"
-              className="min-h-12 flex-row items-center justify-between rounded-xl border border-separator px-3"
+              className="min-h-12 flex-row items-center justify-between rounded-xl border border-separator bg-surface px-3"
               onPress={() => setDatePickerOpen(true)}
             >
               <Text className={dueDate ? "text-sm text-foreground" : "text-sm text-muted"}>

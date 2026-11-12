@@ -1,0 +1,903 @@
+import { Button, CheckBox, ComboBox, LineEdit, ScrollView, Palette } from "std-widgets.slint";
+
+export struct BillRow {
+    title: string,
+    subtitle: string,
+    amount: string,
+    paid: string,
+    status: string,
+    progress: float,
+    review: bool,
+}
+
+export struct BalanceRow {
+    name: string,
+    amount: string,
+    change: string,
+}
+
+export struct BoarderRow {
+    name: string,
+    amount: string,
+    change: string,
+    archived: bool,
+}
+
+export struct ShareRow {
+    name: string,
+    due: string,
+    paid: string,
+    balance: string,
+    change: string,
+    status: string,
+}
+
+export struct PaymentRow {
+    title: string,
+    subtitle: string,
+    amount: string,
+    change: string,
+    can-return: bool,
+}
+
+export struct HistoryRow {
+    period: string,
+    bills: string,
+    expected: string,
+    applied: string,
+    outstanding: string,
+}
+
+export struct TypeRow {
+    name: string,
+    count: string,
+    archived: bool,
+}
+
+export struct PickRow {
+    name: string,
+    selected: bool,
+    amount: string,
+}
+
+component Stat inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    height: 62px;
+    background: Palette.control-background;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Palette.border;
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 2px;
+        Text {
+            text: root.label;
+            font-size: 11px;
+            color: Palette.foreground;
+            opacity: 0.7;
+            overflow: elide;
+        }
+        Text {
+            text: root.value;
+            font-size: 14px;
+            font-weight: 600;
+            color: Palette.foreground;
+            overflow: elide;
+        }
+    }
+}
+
+component SectionTitle inherits Text {
+    font-size: 13px;
+    font-weight: 700;
+    color: Palette.foreground;
+    opacity: 0.75;
+    height: 20px;
+}
+
+component ListCard inherits Rectangle {
+    height: 62px;
+    background: Palette.control-background;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Palette.border;
+}
+
+export component AppWindow inherits Window {
+    title: "Boarding House Treasurer";
+    width: 420px;
+    height: 860px;
+    background: Palette.background;
+
+    in property <int> screen: 0;
+    in property <string> screen-title: "Dashboard";
+    in property <string> message: "";
+
+    in-out property <string> period-label: "";
+    in property <string> total-expected: "";
+    in property <string> total-paid: "";
+    in property <string> total-outstanding: "";
+    in property <string> total-change: "";
+    in property <string> archived-note: "";
+    in property <int> filter: 0;
+    in property <[string]> filters: ["All", "Unpaid", "Paid", "Change due"];
+    in-out property <bool> include-archived: false;
+
+    in property <[BillRow]> bills: [];
+    in property <[BalanceRow]> balances: [];
+    in property <[BoarderRow]> boarders: [];
+    in property <[ShareRow]> shares: [];
+    in property <[PaymentRow]> payments: [];
+    in property <[HistoryRow]> history: [];
+    in property <[TypeRow]> types: [];
+    in property <[PickRow]> picks: [];
+
+    in property <[string]> currency-names: [];
+    in property <[string]> bill-type-names: [];
+    in-out property <int> currency-index: 0;
+    in-out property <bool> allow-centavos: true;
+    in-out property <int> bill-type-index: 0;
+
+    in-out property <string> new-boarder-name: "";
+    in-out property <string> rename-name: "";
+    in-out property <string> type-name: "";
+    in-out property <string> bill-total: "";
+    in-out property <string> bill-year: "";
+    in-out property <string> bill-month: "";
+    in-out property <string> bill-due: "";
+    in-out property <string> bill-note: "";
+    in-out property <string> payment-amount: "";
+    in-out property <string> payment-date: "";
+    in-out property <string> void-reason: "";
+
+    in property <string> detail-title: "";
+    in property <string> detail-subtitle: "";
+    in property <string> detail-summary: "";
+    in property <string> last-backup: "";
+    in property <string> app-version: "";
+
+    callback nav(int);
+    callback prev-month();
+    callback next-month();
+    callback set-filter(int);
+    callback open-bill(int);
+    callback open-boarder(int);
+    callback open-ledger(int);
+    callback open-history(int);
+    callback back();
+    callback add-boarder(string);
+    callback rename-boarder(int, string);
+    callback archive-boarder(int);
+    callback add-bill-type(string);
+    callback archive-type(int);
+    callback open-new-bill();
+    callback pick-toggle(int);
+    callback pick-amount(int, string);
+    callback create-bill();
+    callback pay-share(int);
+    callback void-payment(int);
+    callback return-change(int);
+    callback archive-bill();
+    callback export-backup();
+    callback import-backup();
+    callback save-settings();
+    callback toggle-archived();
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+
+        if message != "" : Rectangle {
+            height: max(34px, message-text.preferred-height + 12px);
+            background: Palette.accent-background;
+            border-radius: 6px;
+            message-text := Text {
+                x: 8px;
+                width: parent.width - 16px;
+                y: 6px;
+                text: message;
+                wrap: word-wrap;
+                font-size: 11px;
+                color: Palette.accent-foreground;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            if screen >= 10 : Button {
+                text: "Back";
+                width: 72px;
+                clicked => { root.back(); }
+            }
+            Text {
+                text: root.screen-title;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+                font-size: 19px;
+                font-weight: 700;
+                color: Palette.foreground;
+                overflow: elide;
+            }
+        }
+
+        // ---------------- Dashboard ----------------
+        if screen == 0 : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 8px;
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    Button {
+                        text: "‹";
+                        width: 42px;
+                        clicked => { root.prev-month(); }
+                    }
+                    Text {
+                        text: root.period-label;
+                        horizontal-stretch: 1;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Palette.foreground;
+                    }
+                    Button {
+                        text: "›";
+                        width: 42px;
+                        clicked => { root.next-month(); }
+                    }
+                }
+
+                GridLayout {
+                    spacing: 6px;
+                    Row {
+                        Stat { label: "Expected"; value: root.total-expected; }
+                        Stat { label: "Collected"; value: root.total-paid; }
+                    }
+                    Row {
+                        Stat { label: "Outstanding"; value: root.total-outstanding; }
+                        Stat { label: "Change due"; value: root.total-change; }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    for f[i] in root.filters : Button {
+                        horizontal-stretch: 1;
+                        text: root.filter == i ? "• " + f : f;
+                        clicked => { root.set-filter(i); }
+                    }
+                }
+
+                HorizontalLayout {
+                    SectionTitle {
+                        text: "Bills";
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        text: "New bill";
+                        width: 90px;
+                        clicked => { root.open-new-bill(); }
+                    }
+                }
+
+                if root.bills.length == 0 : Text {
+                    text: "No bills for this month.";
+                    font-size: 12px;
+                    color: Palette.foreground;
+                    opacity: 0.7;
+                }
+
+                for bill[i] in root.bills : ListCard {
+                    height: 92px;
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: bill.title;
+                                horizontal-stretch: 1;
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: Palette.foreground;
+                                overflow: elide;
+                            }
+                            if bill.review : Text {
+                                text: "review";
+                                font-size: 10px;
+                                color: Palette.accent-foreground;
+                            }
+                            Text {
+                                text: bill.status;
+                                font-size: 11px;
+                                color: Palette.foreground;
+                                opacity: 0.75;
+                            }
+                            Button {
+                                text: "Open";
+                                width: 62px;
+                                clicked => { root.open-bill(i); }
+                            }
+                        }
+                        Text {
+                            text: bill.subtitle;
+                            font-size: 11px;
+                            color: Palette.foreground;
+                            opacity: 0.7;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: bill.amount + " expected · " + bill.paid + " paid";
+                            font-size: 11px;
+                            color: Palette.foreground;
+                        }
+                        Rectangle {
+                            height: 5px;
+                            border-radius: 3px;
+                            background: Palette.border;
+                            Rectangle {
+                                width: parent.width * bill.progress;
+                                height: parent.height;
+                                border-radius: 3px;
+                                background: Palette.accent-background;
+                            }
+                        }
+                    }
+                }
+
+                if root.archived-note != "" : HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: root.archived-note;
+                        horizontal-stretch: 1;
+                        font-size: 11px;
+                        color: Palette.foreground;
+                        opacity: 0.6;
+                        vertical-alignment: center;
+                    }
+                    Button {
+                        text: root.include-archived ? "Hide archived" : "Show archived";
+                        width: 118px;
+                        clicked => { root.toggle-archived(); }
+                    }
+                }
+
+                SectionTitle { text: "Boarders this month"; }
+
+                for balance[i] in root.balances : ListCard {
+                    height: 52px;
+                    HorizontalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+                        VerticalLayout {
+                            Text {
+                                text: balance.name;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Palette.foreground;
+                            }
+                            Text {
+                                text: balance.amount + " due · " + balance.change + " change";
+                                font-size: 10px;
+                                color: Palette.foreground;
+                                opacity: 0.7;
+                            }
+                        }
+                        Button {
+                            text: "Ledger";
+                            width: 74px;
+                            clicked => { root.open-boarder(i); }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------- Boarders ----------------
+        if screen == 1 : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 8px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    LineEdit {
+                        text <=> root.new-boarder-name;
+                        placeholder-text: "New boarder name";
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        text: "Add";
+                        width: 60px;
+                        clicked => { root.add-boarder(root.new-boarder-name); }
+                    }
+                }
+                LineEdit {
+                    text <=> root.rename-name;
+                    placeholder-text: "Rename boarder to…";
+                }
+                for boarder[i] in root.boarders : ListCard {
+                    height: 72px;
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 4px;
+                        Text {
+                            text: boarder.name;
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: Palette.foreground;
+                        }
+                        Text {
+                            text: boarder.archived ? "Archived" : boarder.amount + " due · " + boarder.change + " change";
+                            font-size: 11px;
+                            color: Palette.foreground;
+                            opacity: 0.7;
+                        }
+                        HorizontalLayout {
+                            spacing: 4px;
+                            Button {
+                                text: "Rename";
+                                horizontal-stretch: 1;
+                                clicked => { root.rename-boarder(i, root.rename-name); }
+                            }
+                            Button {
+                                text: "Ledger";
+                                horizontal-stretch: 1;
+                                clicked => { root.open-ledger(i); }
+                            }
+                            Button {
+                                text: boarder.archived ? "Restore" : "Archive";
+                                horizontal-stretch: 1;
+                                clicked => { root.archive-boarder(i); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------- History ----------------
+        if screen == 3 : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 8px;
+                for row[i] in root.history : ListCard {
+                    height: 78px;
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        Text {
+                            text: row.period;
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: Palette.foreground;
+                        }
+                        Text {
+                            text: row.bills + " · " + row.expected + " expected";
+                            font-size: 11px;
+                            color: Palette.foreground;
+                            opacity: 0.7;
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: row.applied + " collected";
+                                font-size: 11px;
+                                color: Palette.foreground;
+                                horizontal-stretch: 1;
+                            }
+                            Text {
+                                text: row.outstanding + " outstanding";
+                                font-size: 11px;
+                                color: Palette.foreground;
+                                horizontal-stretch: 1;
+                            }
+                            Button {
+                                text: "Open";
+                                width: 62px;
+                                clicked => { root.open-history(i); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------- Settings ----------------
+        if screen == 4 : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 8px;
+                SectionTitle { text: "Currency"; }
+                ComboBox {
+                    model: root.currency-names;
+                    current-index <=> root.currency-index;
+                }
+                CheckBox {
+                    text: "Allow centavos in amounts";
+                    checked <=> root.allow-centavos;
+                }
+                Button {
+                    text: "Save settings";
+                    clicked => { root.save-settings(); }
+                }
+
+                SectionTitle { text: "Backup"; }
+                Text {
+                    text: "Last backup: " + root.last-backup;
+                    font-size: 11px;
+                    color: Palette.foreground;
+                    opacity: 0.75;
+                }
+                Button {
+                    text: "Export backup";
+                    clicked => { root.export-backup(); }
+                }
+                Button {
+                    text: "Import newest backup from app folder";
+                    clicked => { root.import-backup(); }
+                }
+
+                SectionTitle { text: "Bill types"; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    LineEdit {
+                        text <=> root.type-name;
+                        placeholder-text: "New bill type";
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        text: "Add";
+                        width: 60px;
+                        clicked => { root.add-bill-type(root.type-name); }
+                    }
+                }
+                for type[i] in root.types : ListCard {
+                    height: 46px;
+                    HorizontalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+                        Text {
+                            text: type.name;
+                            horizontal-stretch: 1;
+                            font-size: 13px;
+                            color: Palette.foreground;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: type.count;
+                            font-size: 10px;
+                            color: Palette.foreground;
+                            opacity: 0.65;
+                            vertical-alignment: center;
+                        }
+                        Button {
+                            text: type.archived ? "Restore" : "Archive";
+                            width: 90px;
+                            clicked => { root.archive-type(i); }
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.app-version;
+                    font-size: 10px;
+                    color: Palette.foreground;
+                    opacity: 0.5;
+                }
+            }
+        }
+
+        // ---------------- New bill ----------------
+        if screen == 12 : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 8px;
+                SectionTitle { text: "Bill type"; }
+                ComboBox {
+                    model: root.bill-type-names;
+                    current-index <=> root.bill-type-index;
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    LineEdit {
+                        text <=> root.bill-year;
+                        placeholder-text: "Year";
+                        width: 76px;
+                    }
+                    LineEdit {
+                        text <=> root.bill-month;
+                        placeholder-text: "Month";
+                        width: 66px;
+                    }
+                    LineEdit {
+                        text <=> root.bill-total;
+                        placeholder-text: "Total";
+                        horizontal-stretch: 1;
+                    }
+                }
+                LineEdit {
+                    text <=> root.bill-due;
+                    placeholder-text: "Due date YYYY-MM-DD (optional)";
+                }
+                LineEdit {
+                    text <=> root.bill-note;
+                    placeholder-text: "Note (optional)";
+                }
+
+                SectionTitle { text: "Split among"; }
+                for pick[i] in root.picks : ListCard {
+                    height: 48px;
+                    HorizontalLayout {
+                        padding: 6px;
+                        spacing: 6px;
+                        Text {
+                            text: pick.name;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                            font-size: 13px;
+                            color: Palette.foreground;
+                            overflow: elide;
+                        }
+                        LineEdit {
+                            text: pick.amount;
+                            placeholder-text: "amount";
+                            width: 96px;
+                            edited(text) => { root.pick-amount(i, text); }
+                        }
+                        Button {
+                            text: pick.selected ? "Selected" : "Select";
+                            width: 88px;
+                            clicked => { root.pick-toggle(i); }
+                        }
+                    }
+                }
+                Text {
+                    text: "Leave amounts empty for an equal split. Leftover centavos go to the first selected boarders.";
+                    font-size: 10px;
+                    color: Palette.foreground;
+                    opacity: 0.65;
+                    wrap: word-wrap;
+                }
+                Button {
+                    text: "Create bill";
+                    clicked => { root.create-bill(); }
+                }
+            }
+        }
+
+        // ---------------- Bill detail ----------------
+        if screen == 10 : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.detail-title;
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: Palette.foreground;
+                }
+                Text {
+                    text: root.detail-subtitle;
+                    font-size: 11px;
+                    color: Palette.foreground;
+                    opacity: 0.7;
+                }
+                Text {
+                    text: root.detail-summary;
+                    font-size: 11px;
+                    color: Palette.foreground;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    LineEdit {
+                        text <=> root.payment-amount;
+                        placeholder-text: "Payment amount";
+                        horizontal-stretch: 1;
+                    }
+                    LineEdit {
+                        text <=> root.payment-date;
+                        placeholder-text: "YYYY-MM-DD";
+                        width: 116px;
+                    }
+                }
+
+                SectionTitle { text: "Shares"; }
+                for share[i] in root.shares : ListCard {
+                    height: 74px;
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: share.name;
+                                horizontal-stretch: 1;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Palette.foreground;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: share.balance;
+                                font-size: 12px;
+                                color: Palette.foreground;
+                                vertical-alignment: center;
+                            }
+                            Button {
+                                text: "Pay";
+                                width: 56px;
+                                clicked => { root.pay-share(i); }
+                            }
+                        }
+                        Text {
+                            text: share.due + " due · " + share.paid + " paid · " + share.change + " change · " + share.status;
+                            font-size: 10px;
+                            color: Palette.foreground;
+                            opacity: 0.7;
+                        }
+                    }
+                }
+
+                SectionTitle { text: "Payments"; }
+                LineEdit {
+                    text <=> root.void-reason;
+                    placeholder-text: "Reason when voiding a payment";
+                }
+                for payment[i] in root.payments : ListCard {
+                    height: 86px;
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: payment.title;
+                                horizontal-stretch: 1;
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Palette.foreground;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: payment.amount;
+                                font-size: 12px;
+                                color: Palette.foreground;
+                                vertical-alignment: center;
+                            }
+                        }
+                        Text {
+                            text: payment.subtitle + " · " + payment.change + " change";
+                            font-size: 10px;
+                            color: Palette.foreground;
+                            opacity: 0.7;
+                            overflow: elide;
+                        }
+                        HorizontalLayout {
+                            spacing: 4px;
+                            if payment.can-return : Button {
+                                text: "Return change";
+                                horizontal-stretch: 1;
+                                clicked => { root.return-change(i); }
+                            }
+                            Button {
+                                text: "Void";
+                                horizontal-stretch: 1;
+                                clicked => { root.void-payment(i); }
+                            }
+                        }
+                    }
+                }
+                Button {
+                    text: "Archive / restore bill";
+                    clicked => { root.archive-bill(); }
+                }
+                Button {
+                    text: "Back to dashboard";
+                    clicked => { root.back(); }
+                }
+            }
+        }
+
+        // ---------------- Boarder ledger ----------------
+        if screen == 11 : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.detail-title;
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: Palette.foreground;
+                }
+                Text {
+                    text: root.detail-summary;
+                    font-size: 11px;
+                    color: Palette.foreground;
+                    wrap: word-wrap;
+                }
+                for share[i] in root.shares : ListCard {
+                    height: 70px;
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: share.name;
+                                horizontal-stretch: 1;
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Palette.foreground;
+                                overflow: elide;
+                            }
+                            Button {
+                                text: "Open bill";
+                                width: 84px;
+                                clicked => { root.open-bill(i); }
+                            }
+                        }
+                        Text {
+                            text: share.due + " due · " + share.paid + " paid · " + share.balance + " balance";
+                            font-size: 10px;
+                            color: Palette.foreground;
+                            opacity: 0.7;
+                        }
+                    }
+                }
+                for payment[i] in root.payments : ListCard {
+                    height: 58px;
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 2px;
+                        Text {
+                            text: payment.title;
+                            font-size: 12px;
+                            color: Palette.foreground;
+                        }
+                        Text {
+                            text: payment.subtitle;
+                            font-size: 10px;
+                            color: Palette.foreground;
+                            opacity: 0.7;
+                        }
+                    }
+                }
+                Button {
+                    text: "Back";
+                    clicked => { root.back(); }
+                }
+            }
+        }
+
+        // ---------------- Bottom navigation ----------------
+        if screen < 10 : HorizontalLayout {
+            spacing: 4px;
+            Button {
+                text: "Dashboard";
+                horizontal-stretch: 1;
+                clicked => { root.nav(0); }
+            }
+            Button {
+                text: "Boarders";
+                horizontal-stretch: 1;
+                clicked => { root.nav(1); }
+            }
+            Button {
+                text: "History";
+                horizontal-stretch: 1;
+                clicked => { root.nav(3); }
+            }
+            Button {
+                text: "Settings";
+                horizontal-stretch: 1;
+                clicked => { root.nav(4); }
+            }
+        }
+    }
+}

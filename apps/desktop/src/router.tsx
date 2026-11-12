@@ -40,7 +40,7 @@ function AppShell() {
           <p className="text-[11px] font-semibold tracking-widest text-muted uppercase">
             Boarding house
           </p>
-          <p className="text-base font-bold tracking-tight text-ink">Treasurer</p>
+          <p className="text-base font-bold tracking-tight text-ink">BetterT</p>
         </div>
 
         <nav className="mt-6 flex flex-col gap-1">

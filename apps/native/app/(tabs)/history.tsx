@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import { cn } from "heroui-native";
+import { cn, useThemeColor } from "heroui-native";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
@@ -15,11 +15,16 @@ import {
   AppDialog,
   EmptyState,
   ErrorBlock,
-  LoadingBlock,
   Screen,
   SummaryCard,
 } from "@/src/features/treasurer/components/ui";
+import {
+  CardListSkeleton,
+  FilterBarSkeleton,
+  SummaryCardsSkeleton,
+} from "@/src/features/treasurer/components/skeleton";
 import { useAppSettings, useBillHistory } from "@/src/features/treasurer/queries";
+import { PILL } from "@/components/navigation/pill-theme";
 
 const ALL = "all";
 
@@ -35,6 +40,7 @@ function FilterSelect({
   onChange: (key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const muted = useThemeColor("muted");
   const selectedLabel =
     options.find((option) => option.key === selectedKey)?.label ?? options[0]?.label ?? "";
 
@@ -49,7 +55,7 @@ function FilterSelect({
         <Text className="flex-1 text-sm text-foreground" numberOfLines={1}>
           {selectedLabel}
         </Text>
-        <Ionicons name="chevron-down" size={15} className="text-muted" />
+        <Ionicons name="chevron-down" size={15} color={muted} />
       </Pressable>
 
       <AppDialog open={open} onOpenChange={setOpen} title={`Filter by ${label.toLowerCase()}`}>
@@ -158,19 +164,26 @@ export default function HistoryScreen() {
   }
 
   return (
-    <Screen>
+    <Screen topInset bottomClearance={PILL.clearance}>
       <View className="pb-1 pt-4">
         <Text className="text-xs font-medium uppercase tracking-wide text-muted">
           Boarding house treasurer
         </Text>
-        <Text className="mt-1 text-2xl font-semibold text-foreground">History</Text>
         <Text className="mt-1 text-sm text-muted">
           Every bill recorded, across all months. Read only.
         </Text>
       </View>
 
       {history.isLoading ? (
-        <LoadingBlock label="Loading bill history…" />
+        <View className="mt-4">
+          <FilterBarSkeleton />
+          <View className="mt-4">
+            <SummaryCardsSkeleton />
+          </View>
+          <View className="mt-4">
+            <CardListSkeleton rows={3} />
+          </View>
+        </View>
       ) : history.isError || !data ? (
         <ErrorBlock
           message="The bill history could not be loaded."

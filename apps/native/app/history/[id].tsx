@@ -15,12 +15,16 @@ import {
   BillStatusBadge,
   EmptyState,
   ErrorBlock,
-  LoadingBlock,
   Screen,
   SectionHeader,
   StatusBadge,
   SummaryCard,
 } from "@/src/features/treasurer/components/ui";
+import {
+  DetailHeaderSkeleton,
+  ShareRowsSkeleton,
+  SummaryCardsSkeleton,
+} from "@/src/features/treasurer/components/skeleton";
 import { useAppSettings, useBillDetail } from "@/src/features/treasurer/queries";
 
 export default function HistoryBillScreen() {
@@ -42,14 +46,22 @@ export default function HistoryBillScreen() {
       .sort((a, b) => b.paidAt - a.paidAt)
       .map((payment) => ({
         payment,
-        boarderName: names.get(payment.billShareId) ?? "Tenant",
+        boarderName: names.get(payment.billShareId) ?? "Boarder",
       }));
   }, [data]);
 
   if (detail.isLoading) {
     return (
       <Screen>
-        <LoadingBlock label="Loading bill…" />
+        <DetailHeaderSkeleton />
+        <View className="mt-4">
+          <SummaryCardsSkeleton />
+        </View>
+        <SectionHeader
+          title="Tenants"
+          subtitle="Snapshot names from the time the bill was created."
+        />
+        <ShareRowsSkeleton />
       </Screen>
     );
   }
@@ -163,12 +175,16 @@ export default function HistoryBillScreen() {
       </View>
 
       <SectionHeader
-        title={`Tenants (${data.shares.length})`}
+        title={`Boarders (${data.shares.length})`}
         subtitle="Snapshot names from the time the bill was created."
       />
 
       {data.shares.length === 0 ? (
-        <EmptyState icon="people-outline" title="No tenants on this bill" />
+        <EmptyState
+          icon="people-outline"
+          title="No boarders on this bill"
+          description="This bill was created without any shares."
+        />
       ) : (
         data.shares.map((share) => (
           <ShareRow

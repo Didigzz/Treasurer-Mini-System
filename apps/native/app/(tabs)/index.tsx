@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { Button, Surface, useThemeColor } from "heroui-native";
+import { Button, useThemeColor } from "heroui-native";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
@@ -12,14 +12,20 @@ import {
   EmptyState,
   ErrorBlock,
   FilterChips,
-  LoadingBlock,
   MonthSwitcher,
   Screen,
   SectionHeader,
+  StyledIonicons,
   SummaryCard,
 } from "@/src/features/treasurer/components/ui";
 import { currentPeriod, formatMoney, formatPeriod } from "@my-better-t-app/api/treasurer/money";
+import {
+  BillCardSkeleton,
+  CardListSkeleton,
+  SummaryCardsSkeleton,
+} from "@/src/features/treasurer/components/skeleton";
 import { useAppSettings, useDashboard } from "@/src/features/treasurer/queries";
+import { PILL } from "@/components/navigation/pill-theme";
 import type { ShareFilter } from "@my-better-t-app/api/treasurer/types";
 
 export default function DashboardScreen() {
@@ -52,15 +58,12 @@ export default function DashboardScreen() {
   }, [data]);
 
   return (
-    <Screen>
+    <Screen topInset bottomClearance={PILL.clearance}>
       <View className="pb-1 pt-4">
-        <Text className="text-sm font-medium text-muted">Boarding house treasurer</Text>
-        <View className="mt-1 flex-row items-center justify-between gap-2">
-          <MonthSwitcher
-            year={period.year}
-            month={period.month}
-            onChange={(year, month) => setPeriod({ year, month })}
-          />
+        <View className="flex-row items-center justify-between gap-2">
+          <Text className="text-xs font-medium uppercase tracking-wide text-muted">
+            Boarding house treasurer
+          </Text>
           <Button
             size="sm"
             onPress={() =>
@@ -70,14 +73,33 @@ export default function DashboardScreen() {
               })
             }
           >
-            <Ionicons name="add" size={17} color={accent} />
+            <StyledIonicons name="add" size={17} className="text-accent-foreground" />
             <Button.Label>Add bill</Button.Label>
           </Button>
+        </View>
+        <View className="mt-2">
+          <MonthSwitcher
+            year={period.year}
+            month={period.month}
+            onChange={(year, month) => setPeriod({ year, month })}
+          />
         </View>
       </View>
 
       {dashboard.isLoading ? (
-        <LoadingBlock label="Loading this month’s records…" />
+        <View className="mt-4">
+          <SummaryCardsSkeleton />
+          <SectionHeader
+            title="Bills this month"
+            subtitle="Tap a bill to record payments and see every boarder."
+          />
+          <BillCardSkeleton />
+          <SectionHeader
+            title="Boarders this month"
+            subtitle="Balances combine every bill in the selected month."
+          />
+          <CardListSkeleton rows={3} />
+        </View>
       ) : dashboard.isError ? (
         <ErrorBlock
           message="Your dashboard could not be loaded."
@@ -117,14 +139,15 @@ export default function DashboardScreen() {
 
           <View className="mt-3 flex-row items-center justify-between gap-2">
             <Text className="text-xs text-muted">
-              {data.totals.paidShareCount} of {data.totals.totalShareCount} shares paid
+              {data.totals.paidShareCount} of {data.totals.totalShareCount}{" "}
+              {data.totals.totalShareCount === 1 ? "share" : "shares"} paid
               {data.totals.partialShareCount > 0
                 ? ` • ${data.totals.partialShareCount} partial`
                 : ""}
             </Text>
             {data.archivedBillCount > 0 || includeArchived ? (
               <Pressable
-                accessibilityRole="switch"
+                accessibilityRole="checkbox"
                 accessibilityState={{ checked: includeArchived }}
                 onPress={() => setIncludeArchived((value) => !value)}
                 className="min-h-11 flex-row items-center gap-1.5"

@@ -10,9 +10,10 @@ import {
   EmptyState,
   ErrorBlock,
   FormField,
-  LoadingBlock,
   Screen,
+  StyledIonicons,
 } from "@/src/features/treasurer/components/ui";
+import { CardListSkeleton } from "@/src/features/treasurer/components/skeleton";
 import {
   useArchiveBillType,
   useBillTypes,
@@ -38,7 +39,6 @@ export default function BillTypesScreen() {
   const [archiveTarget, setArchiveTarget] = useState<BillTypeWithCount | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const accent = useThemeColor("accent");
   const muted = useThemeColor("muted");
 
   const active = (types.data ?? []).filter((type) => !type.isArchived);
@@ -112,15 +112,12 @@ export default function BillTypesScreen() {
 
   return (
     <Screen>
-      <View className="flex-row items-start justify-between gap-3 pt-4">
-        <View className="flex-1">
-          <Text className="text-2xl font-semibold text-foreground">Bill types</Text>
-          <Text className="mt-1 text-sm text-muted">
-            Archive a type to stop using it without changing old bills.
-          </Text>
-        </View>
+      <View className="flex-row items-center justify-between gap-3 pt-4">
+        <Text className="flex-1 text-sm text-muted">
+          Archive a type to stop using it without changing old bills.
+        </Text>
         <Button size="sm" onPress={openAdd}>
-          <Ionicons name="add" size={17} color={accent} />
+          <StyledIonicons name="add" size={17} className="text-accent-foreground" />
           <Button.Label>Add</Button.Label>
         </Button>
       </View>
@@ -133,7 +130,7 @@ export default function BillTypesScreen() {
 
       <View className="mt-5">
         {types.isLoading ? (
-          <LoadingBlock label="Loading bill types…" />
+          <CardListSkeleton rows={4} />
         ) : types.isError ? (
           <ErrorBlock message="Bill types could not be loaded." onRetry={() => void types.refetch()} />
         ) : (types.data ?? []).length === 0 ? (

@@ -15,7 +15,6 @@ import {
   ErrorBlock,
   FilterChips,
   FormField,
-  LoadingBlock,
   Screen,
   SectionHeader,
   StatusBadge,
@@ -35,6 +34,12 @@ import {
   useMarkChangeReturned,
   useVoidPayment,
 } from "@/src/features/treasurer/queries";
+import {
+  DetailHeaderSkeleton,
+  ShareRowsSkeleton,
+  Skeleton,
+  SummaryCardsSkeleton,
+} from "@/src/features/treasurer/components/skeleton";
 import type { ShareFilter } from "@my-better-t-app/api/treasurer/types";
 
 export default function BillDetailScreen() {
@@ -46,6 +51,7 @@ export default function BillDetailScreen() {
   const voidPayment = useVoidPayment();
 
   const muted = useThemeColor("muted");
+  const danger = useThemeColor("danger");
 
   const [filter, setFilter] = useState<ShareFilter>("all");
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -141,7 +147,19 @@ export default function BillDetailScreen() {
   if (detail.isLoading) {
     return (
       <Screen>
-        <LoadingBlock label="Loading bill…" />
+        <DetailHeaderSkeleton />
+        <View className="mt-4">
+          <SummaryCardsSkeleton />
+        </View>
+        <View className="mt-3 flex-row gap-2">
+          <Skeleton className="h-10 flex-1 rounded-full" />
+          <Skeleton className="h-10 flex-1 rounded-full" />
+        </View>
+        <SectionHeader
+          title="Boarders"
+          subtitle="Paid means the share is covered; change is tracked separately."
+        />
+        <ShareRowsSkeleton />
       </Screen>
     );
   }
@@ -245,7 +263,7 @@ export default function BillDetailScreen() {
               icon="alert-circle-outline"
             />
             <SummaryCard
-              label="Change"
+              label="Change to return"
               value={formatMoney(data.summary.changeOutstandingMinor, currency)}
               tone={data.summary.changeOutstandingMinor > 0 ? "warning" : "default"}
               icon="cash-outline"
@@ -274,7 +292,7 @@ export default function BillDetailScreen() {
             <Ionicons
               name={isArchived ? "refresh" : "archive-outline"}
               size={15}
-              color={muted}
+              color={isArchived ? muted : danger}
             />
             <Button.Label>{isArchived ? "Unarchive" : "Archive"}</Button.Label>
           </Button>

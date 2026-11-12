@@ -35,6 +35,7 @@ export function BillCard({
       accessibilityLabel={`${item.bill.billTypeNameSnapshot}, ${formatPeriod(item.bill.periodYear, item.bill.periodMonth)}, ${formatMoney(item.bill.totalMinor, currency)}, ${item.summary.status}`}
       onPress={onPress}
       className="mb-3"
+      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
     >
       <Surface variant="secondary" className="rounded-2xl p-4">
         <View className="flex-row items-start justify-between gap-3">
@@ -78,7 +79,7 @@ export function BillCard({
           ) : null}
         </View>
 
-        <View className="mt-3 h-2 overflow-hidden rounded-full bg-default">
+        <View className="mt-3 h-2 overflow-hidden rounded-full bg-muted/20">
           <View
             className="h-2 rounded-full bg-success"
             style={{ width: `${Math.max(2, Math.round(item.summary.progress * 100))}%` }}
@@ -296,6 +297,7 @@ export function BoarderBalanceRow({
       accessibilityLabel={`${name}, ${formatMoney(outstandingMinor, currency)} outstanding`}
       onPress={onPress}
       className="mb-2"
+      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
     >
       <Surface variant="secondary" className="rounded-2xl p-3.5">
         <View className="flex-row items-center justify-between gap-3">
@@ -342,7 +344,7 @@ export function HistoryBillRow({
 }) {
   const muted = useThemeColor("muted");
   const overdue = isOverdue(item.bill.dueDate, item.summary.outstandingMinor > 0);
-  const tenantCount = item.shares.length;
+  const boarderCount = item.shares.length;
 
   return (
     <Surface variant="secondary" className="mb-2 rounded-2xl p-3.5">
@@ -373,7 +375,7 @@ export function HistoryBillRow({
 
           <View className="mt-2 flex-row flex-wrap items-center gap-2">
             <Text className="text-xs text-muted">
-              {tenantCount} {tenantCount === 1 ? "tenant" : "tenants"} •{" "}
+              {boarderCount} {boarderCount === 1 ? "boarder" : "boarders"} •{" "}
               {item.summary.paidShareCount} of {item.summary.totalShareCount} paid
             </Text>
             {overdue ? (
@@ -405,7 +407,7 @@ export function HistoryBillRow({
       {expanded ? (
         <View className="mt-3 border-t border-separator pt-3">
           <Text className="text-xs font-medium text-muted">
-            Tenants ({tenantCount}) · snapshot names
+            Boarders ({boarderCount}) · snapshot names
           </Text>
           {item.shares.map((share) => (
             <View

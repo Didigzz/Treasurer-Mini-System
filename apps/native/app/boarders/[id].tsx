@@ -11,12 +11,16 @@ import {
   EmptyState,
   ErrorBlock,
   FormField,
-  LoadingBlock,
   Screen,
   SectionHeader,
   ShareStatusBadge,
   SummaryCard,
 } from "@/src/features/treasurer/components/ui";
+import {
+  DetailHeaderSkeleton,
+  ShareRowsSkeleton,
+  SummaryCardsSkeleton,
+} from "@/src/features/treasurer/components/skeleton";
 import { PaymentRow } from "@/src/features/treasurer/components/rows";
 import { formatMoney, formatPeriod } from "@my-better-t-app/api/treasurer/money";
 import {
@@ -41,6 +45,7 @@ export default function BoarderDetailScreen() {
 
   const accent = useThemeColor("accent");
   const muted = useThemeColor("muted");
+  const danger = useThemeColor("danger");
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [name, setName] = useState("");
@@ -137,7 +142,15 @@ export default function BoarderDetailScreen() {
   if (ledger.isLoading) {
     return (
       <Screen>
-        <LoadingBlock label="Loading boarder history…" />
+        <DetailHeaderSkeleton />
+        <View className="mt-4">
+          <SummaryCardsSkeleton />
+        </View>
+        <SectionHeader
+          title="Bills and shares"
+          subtitle="All periods, including archived bills."
+        />
+        <ShareRowsSkeleton />
       </Screen>
     );
   }
@@ -296,7 +309,11 @@ export default function BoarderDetailScreen() {
         className="mt-6"
         onPress={() => setArchiveOpen(true)}
       >
-        <Ionicons name={isArchived ? "refresh" : "archive-outline"} size={17} color={muted} />
+        <Ionicons
+          name={isArchived ? "refresh" : "archive-outline"}
+          size={17}
+          color={isArchived ? muted : danger}
+        />
         <Button.Label>{isArchived ? "Restore to active" : "Archive boarder"}</Button.Label>
       </Button>
 

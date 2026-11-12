@@ -4,7 +4,7 @@ import Constants from "expo-constants";
 import { router } from "expo-router";
 import { Button, Surface, cn, useThemeColor } from "heroui-native";
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Switch, Text, View } from "react-native";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -18,6 +18,7 @@ import {
   ConfirmDialog,
   Screen,
   SectionHeader,
+  StyledIonicons,
 } from "@/src/features/treasurer/components/ui";
 import {
   CURRENCY_OPTIONS,
@@ -126,9 +127,8 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
-      <View className="pt-5">
-        <Text className="text-2xl font-semibold text-foreground">Settings</Text>
-        <Text className="mt-1 text-sm text-muted">
+      <View className="pt-4">
+        <Text className="text-sm text-muted">
           Keep the app simple, local, and easy to back up.
         </Text>
       </View>
@@ -201,7 +201,7 @@ export default function SettingsScreen() {
           isDisabled={busy !== null}
           onPress={() => void handleExport()}
         >
-          <Ionicons name="share-outline" size={17} color={accent} />
+          <StyledIonicons name="share-outline" size={17} className="text-accent-foreground" />
           <Button.Label>{busy === "export" ? "Preparing backup…" : "Export backup"}</Button.Label>
         </Button>
         <Button
@@ -210,7 +210,7 @@ export default function SettingsScreen() {
           isDisabled={busy !== null}
           onPress={() => void handlePickRestore()}
         >
-          <Ionicons name="download-outline" size={17} color={muted} />
+          <StyledIonicons name="download-outline" size={17} className="text-foreground" />
           <Button.Label>{busy === "pick" ? "Opening files…" : "Restore from backup"}</Button.Label>
         </Button>
         <Text className="mt-3 text-xs text-muted">
@@ -250,19 +250,14 @@ export default function SettingsScreen() {
               Turn on centavos for exact division. When off, bill splits round to whole pesos.
             </Text>
           </View>
-          <Pressable
-            accessibilityRole="switch"
-            accessibilityState={{ checked: settings.data?.allowCentavos ?? true }}
+          <Switch
             accessibilityLabel="Allow centavos"
-            className="min-h-11 min-w-11 items-center justify-center"
-            onPress={() => void handleToggleCentavos(!(settings.data?.allowCentavos ?? true))}
-          >
-            <Ionicons
-              name={(settings.data?.allowCentavos ?? true) ? "checkbox" : "square-outline"}
-              size={24}
-              color={(settings.data?.allowCentavos ?? true) ? accent : muted}
-            />
-          </Pressable>
+            value={settings.data?.allowCentavos ?? true}
+            disabled={setAllowCentavos.isPending || settings.isLoading}
+            trackColor={{ true: accent }}
+            thumbColor="#FFFFFF"
+            onValueChange={(next) => void handleToggleCentavos(next)}
+          />
         </View>
       </Surface>
 

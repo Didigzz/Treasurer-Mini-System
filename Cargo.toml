@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/treasurer-core",
+  "apps/mobile",
+  "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

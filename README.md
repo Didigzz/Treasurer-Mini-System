@@ -8,9 +8,9 @@ The treasurer can keep a boarder list, manage bill types, split monthly shared b
 equally or with custom amounts, record payments and change to return, follow balances per
 month and per boarder, and export/restore everything as a JSON file.
 
-All records live **only on the device** in a local SQLite database. The Expo app reads
-SQLite directly; the Windows desktop app runs the bundled Hono/tRPC server against a
-libsql file in its app-data folder. Neither app uses accounts, cloud sync, or analytics.
+All records live **only on the device** in a local SQLite database. The Rust/Slint phone
+app reads SQLite directly; the Windows desktop app runs the bundled Hono/tRPC server
+against a libsql file in its app-data folder. Neither app uses accounts, cloud sync, or analytics.
 
 See [boarding-house-treasurer-spec.md](boarding-house-treasurer-spec.md) for the full
 product and implementation spec.
@@ -64,17 +64,18 @@ The desktop database lives at `%APPDATA%\com.boardinghouse.treasurer\treasurer.d
 Use Settings → Export backup before moving computers; import the same JSON on the other
 machine. Moving between Expo and desktop is a manual backup export/import.
 
-### Expo app
+### Expo app (legacy, kept until Rust parity)
 
+The Expo app still runs through Expo Go with no native build. Its Gradle-based
+`android`/`ios`/`prebuild` scripts were removed; do not regenerate `apps/native/android`.
 Start the Expo development server:
 
 ```bash
 bun run dev:native
 ```
 
-Then press `a` for Android or `i` for iOS, or run `bun run android` / `bun run ios` from
-`apps/native`. `expo-sqlite`, `expo-document-picker`, and `expo-sharing` work in a
-development build; see
+Then scan the QR code with Expo Go (below). `expo-sqlite`, `expo-document-picker`, and
+`expo-sharing` work in a development build; see
 [Expo development builds](https://docs.expo.dev/develop/development-builds/introduction/)
 for device setup.
 
@@ -99,19 +100,29 @@ If the phone cannot reach `192.168.x.x:8081`, check that Windows Firewall allows
 (private networks), that both devices are on the same subnet, and that the Wi-Fi network
 does not use client isolation (guest networks usually do).
 
-To run a **standalone app** that no longer needs the dev server, build an installable APK
-instead (this machine already has JDK 17 and the Android SDK, so no EAS account is
-needed):
+To run a **standalone app** that no longer needs the dev server, build the Rust app in
+`apps/mobile`. It is packaged by Cargo + xbuild — there is no Gradle project, no
+`gradlew`, and no `expo prebuild` step.
+
+Prerequisites: Rust with the `aarch64-linux-android` target, the Android SDK and NDK
+(`ANDROID_HOME`, `ANDROID_NDK_ROOT`), and JDK 17. The app has no Java or Kotlin code;
+the JDK is only used by `keytool`/`apksigner` to sign the debug APK.
 
 ```bash
-cd apps/native
-bunx expo prebuild --platform android   # generates the native android/ project
-cd android && ./gradlew assembleRelease # APK in android/app/build/outputs/apk/release/
+rustup target add aarch64-linux-android
+cargo install --git https://github.com/rust-mobile/xbuild.git   # once
+(cd apps/mobile && x build --platform android --arch arm64 --format apk)
+adb install -r target/x/debug/android/boarding-house-treasurer.apk
 ```
 
-Or, with a USB-connected phone and developer mode enabled, `bun run android` from
-`apps/native` builds and installs a debug development build in one step. The generated
-`android/` and `ios/` folders are gitignored; they are build output, not source.
+The package id is `com.anonymous.mybettertapp`, the same as the Expo app, so an install
+over keeps the existing `treasurer.db`. Android only accepts that when the signing key
+matches; if it is rejected, export a JSON backup from the old app first, uninstall it,
+install the Rust app, and restore the backup in Settings.
+
+To preview the same screens on the desktop, run `bun run mobile:run`.
+
+`bun run check:no-gradle` fails if any Gradle file or directory is reintroduced.
 
 ### Local database and migrations
 
@@ -141,11 +152,21 @@ bun test --cwd packages/api
 This covers money parsing, equal/custom splits, payment and change calculations, and
 integration tests against an in-memory libsql database.
 
+The Rust phone app has its own ported suite:
+
+```bash
+cargo test -p treasurer-core
+```
+
+This covers the same money/split/payment rules, SQLite storage, dashboard and history
+queries, and a JSON backup export/restore round trip.
+
 ## Project Structure
 
 ```
 apps/
-  native/                  # Expo app (treasurer UI + local SQLite)
+  mobile/                  # Rust/Slint phone app (Cargo + xbuild, no Gradle)
+  native/                  # Legacy Expo app, kept until the Rust app reaches parity
     app/                   # Expo Router routes
       (tabs)/              # Dashboard, Boarders, Settings
       bills/               # Create/edit bill, bill detail
@@ -164,6 +185,8 @@ packages/
   api/                     # Shared treasurer domain + tRPC routers + tests
   db/                      # Drizzle schema, startup migrator, libsql client
   config/                  # Shared TypeScript configuration
+crates/
+  treasurer-core/          # Rust domain, SQLite storage, backups, ported tests
 ```
 
 ## Available Scripts
@@ -173,6 +196,10 @@ packages/
 - `bun run dev:desktop`: Start the desktop app in a browser (Vite dev server plus the Hono API)
 - `bun run tauri:dev`: Build the sidecar and open the desktop app in Tauri
 - `bun run tauri:build`: Build the Windows release app and installer
+- `bun run mobile:run`: Preview the Rust phone UI on the desktop
+- `bun run mobile:apk`: Build the arm64 debug APK with xbuild
+- `bun run mobile:test`: Run the Rust core tests
+- `bun run check:no-gradle`: Fail if any Gradle file or directory is present
 - `bun run dev:server`: Start only the Hono server
 - `bun run check-types`: Check TypeScript types across all apps
 - `bun run build`: Build all applications
