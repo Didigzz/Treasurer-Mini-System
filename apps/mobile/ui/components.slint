@@ -1,0 +1,46 @@
+import { Palette } from "std-widgets.slint";
+
+export component Stat inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    height: 62px;
+    background: Palette.control-background;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Palette.border;
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 2px;
+        Text {
+            text: root.label;
+            font-size: 11px;
+            color: Palette.foreground;
+            opacity: 0.7;
+            overflow: elide;
+        }
+        Text {
+            text: root.value;
+            font-size: 14px;
+            font-weight: 600;
+            color: Palette.foreground;
+            overflow: elide;
+        }
+    }
+}
+
+export component SectionTitle inherits Text {
+    font-size: 13px;
+    font-weight: 700;
+    color: Palette.foreground;
+    opacity: 0.75;
+    height: 20px;
+}
+
+export component ListCard inherits Rectangle {
+    height: 62px;
+    background: Palette.control-background;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Palette.border;
+}

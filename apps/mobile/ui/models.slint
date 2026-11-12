@@ -1,0 +1,59 @@
+export struct BillRow {
+    title: string,
+    subtitle: string,
+    amount: string,
+    paid: string,
+    status: string,
+    progress: float,
+    review: bool,
+}
+
+export struct BalanceRow {
+    name: string,
+    amount: string,
+    change: string,
+}
+
+export struct BoarderRow {
+    name: string,
+    amount: string,
+    change: string,
+    archived: bool,
+}
+
+export struct ShareRow {
+    name: string,
+    due: string,
+    paid: string,
+    balance: string,
+    change: string,
+    status: string,
+}
+
+export struct PaymentRow {
+    title: string,
+    subtitle: string,
+    amount: string,
+    change: string,
+    can-return: bool,
+}
+
+export struct HistoryRow {
+    period: string,
+    bills: string,
+    expected: string,
+    applied: string,
+    outstanding: string,
+}
+
+export struct TypeRow {
+    name: string,
+    count: string,
+    archived: bool,
+}
+
+export struct PickRow {
+    name: string,
+    selected: bool,
+    amount: string,
+}
