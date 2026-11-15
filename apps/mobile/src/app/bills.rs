@@ -453,6 +453,37 @@ impl App {
         Ok((amount, charge))
     }
 
+    /// The split Save will persist for an edit of `boarder_id` at
+    /// `amount_minor`. Locked bills keep their stored split, and so does an
+    /// edit that leaves the amount alone: adding or clearing a charge must
+    /// never move another boarder's share.
+    fn resolved_split(
+        &self,
+        boarder_id: &str,
+        amount_minor: i64,
+    ) -> Result<Vec<SplitResult>, String> {
+        let amount_unchanged = self
+            .detail_shares
+            .iter()
+            .find(|entry| entry.boarder_id == boarder_id)
+            .map(|entry| entry.base_due == amount_minor)
+            .unwrap_or(false);
+        if self.detail_locked || amount_unchanged {
+            return Ok(self.current_split());
+        }
+
+        match resplit_with_pinned(
+            self.detail_total_minor,
+            &self.split_boarders(),
+            boarder_id,
+            amount_minor,
+            self.allow_centavos,
+        ) {
+            SplitOutcome::Ok(success) => Ok(success.shares),
+            SplitOutcome::Err(failure) => Err(failure.error),
+        }
+    }
+
     pub(super) fn open_edit_share(&mut self, index: usize) {
         let Some(share_id) = self.display_share_ids.get(index).cloned() else {
             return;
@@ -502,24 +533,13 @@ impl App {
             }
         };
 
-        // Locked bills keep their stored split; only the charge can change.
-        let split = if self.detail_locked {
-            self.current_split()
-        } else {
-            match resplit_with_pinned(
-                self.detail_total_minor,
-                &self.split_boarders(),
-                &boarder_id,
-                amount_minor,
-                self.allow_centavos,
-            ) {
-                SplitOutcome::Ok(success) => success.shares,
-                SplitOutcome::Err(failure) => {
-                    let ui = self.ui();
-                    ui.set_share_edit_error(failure.error.into());
-                    ui.set_share_edit_can_save(false);
-                    return;
-                }
+        let split = match self.resolved_split(&boarder_id, amount_minor) {
+            Ok(split) => split,
+            Err(message) => {
+                let ui = self.ui();
+                ui.set_share_edit_error(message.into());
+                ui.set_share_edit_can_save(false);
+                return;
             }
         };
 
@@ -582,22 +602,12 @@ impl App {
             }
         };
 
-        let split = if self.detail_locked {
-            self.current_split()
-        } else {
-            match resplit_with_pinned(
-                self.detail_total_minor,
-                &self.split_boarders(),
-                &boarder_id,
-                amount_minor,
-                self.allow_centavos,
-            ) {
-                SplitOutcome::Ok(success) => success.shares,
-                SplitOutcome::Err(failure) => {
-                    ui.set_share_edit_error(failure.error.into());
-                    ui.set_share_edit_can_save(false);
-                    return;
-                }
+        let split = match self.resolved_split(&boarder_id, amount_minor) {
+            Ok(split) => split,
+            Err(message) => {
+                ui.set_share_edit_error(message.into());
+                ui.set_share_edit_can_save(false);
+                return;
             }
         };
 
