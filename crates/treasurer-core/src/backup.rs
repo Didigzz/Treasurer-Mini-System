@@ -66,6 +66,9 @@ pub struct BackupBillShare {
     pub boarder_id: String,
     pub boarder_name_snapshot: String,
     pub amount_due_minor: i64,
+    /// Optional manual charge. Missing in older version 1 backups, which read as 0.
+    #[serde(default)]
+    pub additional_charge_minor: i64,
     pub created_at: String,
 }
 
@@ -222,7 +225,8 @@ pub fn create_backup_payload(conn: &Connection) -> Result<BackupPayload> {
 
     let bill_shares = {
         let mut statement = conn.prepare(
-            "SELECT id, bill_id, boarder_id, boarder_name_snapshot, amount_due_minor, created_at
+            "SELECT id, bill_id, boarder_id, boarder_name_snapshot, amount_due_minor, created_at,
+                    additional_charge_minor
              FROM bill_shares",
         )?;
         let rows = statement
@@ -233,6 +237,7 @@ pub fn create_backup_payload(conn: &Connection) -> Result<BackupPayload> {
                     boarder_id: row.get(2)?,
                     boarder_name_snapshot: row.get(3)?,
                     amount_due_minor: row.get(4)?,
+                    additional_charge_minor: row.get(6)?,
                     created_at: to_iso(Some(row.get(5)?)).unwrap_or_default(),
                 })
             })?
@@ -454,6 +459,11 @@ pub fn validate_backup(payload: &BackupPayload) -> Result<()> {
         if share.amount_due_minor < 0 || share.amount_due_minor > MAX_AMOUNT_MINOR {
             bail!("This file is not a valid boarding house backup.");
         }
+        if share.additional_charge_minor < 0
+            || share.additional_charge_minor > MAX_AMOUNT_MINOR
+        {
+            bail!("This file is not a valid boarding house backup.");
+        }
         if !bill_ids.contains(&share.bill_id) {
             bail!("The backup contains a share with a missing bill.");
         }
@@ -549,7 +559,8 @@ pub fn restore_backup(conn: &Connection, payload: BackupPayload) -> Result<()> {
             .get(&share.id)
             .cloned()
             .unwrap_or_default();
-        for payment in recompute_payment_changes(share.amount_due_minor, &share_payments) {
+        let total_due = share.amount_due_minor + share.additional_charge_minor;
+        for payment in recompute_payment_changes(total_due, &share_payments) {
             computed_payments.push((payment.payment.id.clone(), payment.computed_change_minor));
         }
     }
@@ -642,8 +653,8 @@ pub fn restore_backup(conn: &Connection, payload: BackupPayload) -> Result<()> {
     for share in &data.bill_shares {
         transaction.execute(
             "INSERT INTO bill_shares (id, bill_id, boarder_id, boarder_name_snapshot,
-                                      amount_due_minor, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                                      amount_due_minor, created_at, additional_charge_minor)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 share.id,
                 share.bill_id,
@@ -651,6 +662,7 @@ pub fn restore_backup(conn: &Connection, payload: BackupPayload) -> Result<()> {
                 share.boarder_name_snapshot,
                 share.amount_due_minor,
                 to_ms(&share.created_at)?,
+                share.additional_charge_minor,
             ],
         )?;
     }

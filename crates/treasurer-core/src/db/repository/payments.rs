@@ -36,7 +36,7 @@ impl Treasurer {
         };
         let boarder = self.get_boarder(&share.boarder_id)?;
         let state = compute_share_state(
-            share.amount_due_minor,
+            share.total_due_minor(),
             &self.payments_for_share(share_id)?,
         );
 
@@ -82,7 +82,7 @@ impl Treasurer {
 
         let mut payments = self.payments_for_share(&input.bill_share_id)?;
         payments.push(draft);
-        let computed = recompute_payment_changes(share.amount_due_minor, &payments);
+        let computed = recompute_payment_changes(share.total_due_minor(), &payments);
         let Some(new_payment) = computed.iter().find(|item| item.payment.id == payment_id) else {
             bail!("The payment could not be calculated.");
         };
@@ -165,7 +165,7 @@ impl Treasurer {
             updated.push(payment.clone());
         }
 
-        let computed = recompute_payment_changes(share.amount_due_minor, &updated);
+        let computed = recompute_payment_changes(share.total_due_minor(), &updated);
 
         let transaction = self.conn.unchecked_transaction()?;
         transaction.execute(
@@ -213,7 +213,7 @@ impl Treasurer {
             bail!("Bill share not found.");
         };
         let computed = recompute_payment_changes(
-            share.amount_due_minor,
+            share.total_due_minor(),
             payments
                 .get(&payment.bill_share_id)
                 .map(Vec::as_slice)

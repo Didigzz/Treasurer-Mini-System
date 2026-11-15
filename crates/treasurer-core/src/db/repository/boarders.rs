@@ -37,7 +37,7 @@ impl Treasurer {
         let mut totals: HashMap<String, (i64, i64)> = HashMap::new();
         for share in &shares {
             let state = compute_share_state(
-                share.amount_due_minor,
+                share.total_due_minor(),
                 payments.get(&share.id).map(Vec::as_slice).unwrap_or(&[]),
             );
             let entry = totals.entry(share.boarder_id.clone()).or_insert((0, 0));

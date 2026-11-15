@@ -46,6 +46,7 @@ fn share(id: &str, name: &str, amount_due_minor: i64, payments: &[PaymentRecord]
             boarder_id: id.to_string(),
             boarder_name_snapshot: name.to_string(),
             amount_due_minor,
+            additional_charge_minor: 0,
             created_at: 0,
         },
         state: compute_share_state(amount, paid),

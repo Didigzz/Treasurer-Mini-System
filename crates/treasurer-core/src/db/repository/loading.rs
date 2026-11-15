@@ -13,7 +13,8 @@ use super::Treasurer;
 impl Treasurer {
     pub(super) fn all_shares(&self) -> Result<Vec<BillShare>> {
         let mut statement = self.conn.prepare(
-            "SELECT id, bill_id, boarder_id, boarder_name_snapshot, amount_due_minor, created_at
+            "SELECT id, bill_id, boarder_id, boarder_name_snapshot, amount_due_minor, created_at,
+                    additional_charge_minor
              FROM bill_shares",
         )?;
         let rows = statement
@@ -67,9 +68,10 @@ impl Treasurer {
             .into_iter()
             .map(|share| {
                 let boarder = boarders.get(&share.boarder_id);
+                let total_due = share.total_due_minor();
                 ShareWithState {
                     state: compute_share_state(
-                        share.amount_due_minor,
+                        total_due,
                         payments.get(&share.id).map(Vec::as_slice).unwrap_or(&[]),
                     ),
                     current_boarder_name: boarder.map(|boarder| boarder.name.clone()),

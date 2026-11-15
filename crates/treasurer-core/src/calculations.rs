@@ -5,7 +5,7 @@ use crate::models::{
     HistoryTotals, PaymentRecord, PaymentWithComputedChange, ShareFilter, ShareState, ShareStatus,
     ShareWithState, SplitBoarder, SplitResult,
 };
-use crate::money::MINOR_UNITS_PER_UNIT;
+use crate::money::{MAX_AMOUNT_MINOR, MINOR_UNITS_PER_UNIT};
 
 pub struct SplitSuccess {
     pub shares: Vec<SplitResult>,
@@ -193,6 +193,65 @@ pub fn split_with_overrides(
     })
 }
 
+/// Pins one boarder's share and splits the remainder equally among every
+/// other boarder, in existing bill order. Leftover minor units follow the same
+/// rule as `equal_split`: the earliest non-pinned shares get one extra step.
+pub fn resplit_with_pinned(
+    total_minor: i64,
+    boarders: &[SplitBoarder],
+    pinned_id: &str,
+    pinned_amount_minor: i64,
+    allow_centavos: bool,
+) -> SplitOutcome {
+    if boarders.is_empty() || !boarders.iter().any(|row| row.boarder_id == pinned_id) {
+        return failure("That share is no longer available.");
+    }
+    if pinned_amount_minor < 0 {
+        return failure("Amounts cannot be negative.");
+    }
+
+    let step = split_step(allow_centavos);
+    if pinned_amount_minor % step != 0 {
+        return failure("Whole pesos only. Turn on centavos to use decimals.");
+    }
+
+    if boarders.len() == 1 {
+        if pinned_amount_minor != total_minor {
+            return failure("The only share must equal the bill total.");
+        }
+        return success(vec![SplitResult {
+            boarder_id: pinned_id.to_string(),
+            amount_minor: pinned_amount_minor,
+        }]);
+    }
+
+    if pinned_amount_minor >= total_minor {
+        return failure("Leave room for the other boarders.");
+    }
+
+    let pool_len = boarders.len() as i64 - 1;
+    if total_minor - pinned_amount_minor < pool_len * step {
+        return failure("The remaining amount can't be split among the other boarders.");
+    }
+
+    let overrides = HashMap::from([(pinned_id.to_string(), pinned_amount_minor)]);
+    split_with_overrides(total_minor, boarders, &overrides, allow_centavos)
+}
+
+/// A manual charge is optional and never bounded by the bill total.
+pub fn validate_additional_charge(charge_minor: i64, allow_centavos: bool) -> Option<String> {
+    if charge_minor < 0 {
+        return Some("Additional charges cannot be negative.".to_string());
+    }
+    if charge_minor > MAX_AMOUNT_MINOR {
+        return Some("That amount is too large.".to_string());
+    }
+    if charge_minor % split_step(allow_centavos) != 0 {
+        return Some("Whole pesos only. Turn on centavos to use decimals.".to_string());
+    }
+    None
+}
+
 pub fn validate_custom_shares(total_minor: i64, shares: &[SplitResult]) -> CustomShareValidation {
     if shares.is_empty() {
         return CustomShareValidation {
@@ -336,7 +395,7 @@ pub fn compute_share_state(amount_due_minor: i64, payments: &[PaymentRecord]) ->
 }
 
 pub fn compute_bill_summary(shares: &[ShareWithState], archived_at: Option<i64>) -> BillSummary {
-    let expected_minor: i64 = shares.iter().map(|share| share.share.amount_due_minor).sum();
+    let expected_minor: i64 = shares.iter().map(|share| share.share.total_due_minor()).sum();
     let applied_minor: i64 = shares.iter().map(|share| share.state.applied_minor).sum();
     let cash_received_minor: i64 = shares.iter().map(|share| share.state.paid_minor).sum();
     let change_outstanding_minor: i64 = shares

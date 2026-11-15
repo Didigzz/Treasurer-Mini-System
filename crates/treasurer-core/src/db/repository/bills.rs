@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::{bail, Result};
 use rusqlite::params;
 
+use crate::calculations::{unique_boarder_ids, validate_additional_charge};
 use crate::models::*;
 
 use super::{new_id, now_ms};
@@ -101,8 +102,8 @@ impl Treasurer {
                 .unwrap_or_default();
             transaction.execute(
                 "INSERT INTO bill_shares (id, bill_id, boarder_id, boarder_name_snapshot,
-                                          amount_due_minor, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                                          amount_due_minor, created_at, additional_charge_minor)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
                 params![
                     new_id(),
                     bill_id,
@@ -200,8 +201,29 @@ impl Treasurer {
                 id
             ],
         )?;
-        transaction.execute("DELETE FROM bill_shares WHERE bill_id = ?1", [id])?;
+        // Update existing shares in place so their IDs, snapshots, creation
+        // times, and manual charges survive the edit.
+        let existing_shares: HashMap<&str, &BillShare> = existing
+            .shares
+            .iter()
+            .map(|share| (share.share.boarder_id.as_str(), &share.share))
+            .collect();
+        let keep: std::collections::HashSet<&str> = input
+            .shares
+            .iter()
+            .map(|share| share.boarder_id.as_str())
+            .collect();
+
         for share in &input.shares {
+            if existing_shares.contains_key(share.boarder_id.as_str()) {
+                transaction.execute(
+                    "UPDATE bill_shares SET amount_due_minor = ?1
+                     WHERE bill_id = ?2 AND boarder_id = ?3",
+                    params![share.amount_minor, id, share.boarder_id],
+                )?;
+                continue;
+            }
+
             let boarder_name = old_snapshots
                 .get(share.boarder_id.as_str())
                 .copied()
@@ -210,8 +232,8 @@ impl Treasurer {
                 .unwrap_or_default();
             transaction.execute(
                 "INSERT INTO bill_shares (id, bill_id, boarder_id, boarder_name_snapshot,
-                                          amount_due_minor, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                                          amount_due_minor, created_at, additional_charge_minor)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
                 params![
                     new_id(),
                     id,
@@ -220,6 +242,102 @@ impl Treasurer {
                     share.amount_minor,
                     now
                 ],
+            )?;
+        }
+        for boarder_id in existing_shares.keys() {
+            if !keep.contains(boarder_id) {
+                transaction.execute(
+                    "DELETE FROM bill_shares WHERE bill_id = ?1 AND boarder_id = ?2",
+                    params![id, boarder_id],
+                )?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Saves one share-edit operation: the new base split for the whole bill
+    /// plus the edited boarder's additional charge. Atomic.
+    pub fn save_share_edit(
+        &self,
+        bill_id: &str,
+        split: &[SplitResult],
+        edited_boarder_id: &str,
+        charge_minor: i64,
+    ) -> Result<()> {
+        let Some(detail) = self.bill_detail(bill_id)? else {
+            bail!("Bill not found.");
+        };
+
+        let allow_centavos = self.app_settings()?.allow_centavos;
+        if let Some(error) = validate_additional_charge(charge_minor, allow_centavos) {
+            bail!("{error}");
+        }
+
+        let share_total: i64 = split.iter().map(|share| share.amount_minor).sum();
+        if split.is_empty()
+            || !unique_boarder_ids(split)
+            || split.iter().any(|share| share.amount_minor < 0)
+            || share_total != detail.bill.total_minor
+        {
+            bail!("The assigned shares must equal the bill total.");
+        }
+
+        let existing: HashMap<&str, &BillShare> = detail
+            .shares
+            .iter()
+            .map(|share| (share.share.boarder_id.as_str(), &share.share))
+            .collect();
+        if split.len() != existing.len()
+            || !split
+                .iter()
+                .all(|share| existing.contains_key(share.boarder_id.as_str()))
+            || !existing.contains_key(edited_boarder_id)
+        {
+            bail!("The assigned shares must equal the bill total.");
+        }
+
+        let changed_amounts = split.iter().any(|share| {
+            existing
+                .get(share.boarder_id.as_str())
+                .map(|row| row.amount_due_minor != share.amount_minor)
+                .unwrap_or(false)
+        });
+        if changed_amounts && detail.is_locked {
+            bail!("Share amounts are locked because payments have been recorded. You can still change additional charges.");
+        }
+
+        let charge_changed = existing
+            .get(edited_boarder_id)
+            .map(|row| row.additional_charge_minor != charge_minor)
+            .unwrap_or(false);
+
+        let now = now_ms();
+        let transaction = self.conn.unchecked_transaction()?;
+        if changed_amounts {
+            for share in split {
+                let changed = existing
+                    .get(share.boarder_id.as_str())
+                    .map(|row| row.amount_due_minor != share.amount_minor)
+                    .unwrap_or(false);
+                if changed {
+                    transaction.execute(
+                        "UPDATE bill_shares SET amount_due_minor = ?1
+                         WHERE bill_id = ?2 AND boarder_id = ?3",
+                        params![share.amount_minor, bill_id, share.boarder_id],
+                    )?;
+                }
+            }
+        }
+        transaction.execute(
+            "UPDATE bill_shares SET additional_charge_minor = ?1
+             WHERE bill_id = ?2 AND boarder_id = ?3",
+            params![charge_minor, bill_id, edited_boarder_id],
+        )?;
+        if changed_amounts || charge_changed {
+            transaction.execute(
+                "UPDATE bills SET updated_at = ?1 WHERE id = ?2",
+                params![now, bill_id],
             )?;
         }
         transaction.commit()?;

@@ -125,8 +125,18 @@ pub struct BillShare {
     pub bill_id: String,
     pub boarder_id: String,
     pub boarder_name_snapshot: String,
+    /// Base split share only. These always sum to `Bill::total_minor`.
     pub amount_due_minor: i64,
+    /// Optional manual charge added on top of the base share (0 when none).
+    pub additional_charge_minor: i64,
     pub created_at: i64,
+}
+
+impl BillShare {
+    /// What the boarder actually owes: base share + manual charge.
+    pub fn total_due_minor(&self) -> i64 {
+        self.amount_due_minor + self.additional_charge_minor
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS bill_shares (
   boarder_id TEXT NOT NULL REFERENCES boarders(id) ON DELETE RESTRICT,
   boarder_name_snapshot TEXT NOT NULL,
   amount_due_minor INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  additional_charge_minor INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS bill_shares_bill_boarder_idx ON bill_shares (bill_id, boarder_id);
 CREATE INDEX IF NOT EXISTS bill_shares_boarder_idx ON bill_shares (boarder_id);
@@ -114,7 +115,39 @@ fn configure(conn: &Connection) -> Result<()> {
 
 pub fn initialize(conn: &Connection) -> Result<()> {
     ensure_schema(conn)?;
+    ensure_columns(conn)?;
     seed(conn)?;
+    Ok(())
+}
+
+/// `ensure_schema` skips DDL when an existing `bills` table is adopted, so
+/// additive columns are checked separately on every startup. Safe to repeat
+/// and safe on a database without `bill_shares` yet.
+fn ensure_columns(conn: &Connection) -> Result<()> {
+    if !table_exists(conn, "bill_shares")? {
+        return Ok(());
+    }
+
+    let mut has_charge = false;
+    {
+        let mut statement = conn.prepare("PRAGMA table_info(bill_shares)")?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let name: String = row.get(1)?;
+            if name == "additional_charge_minor" {
+                has_charge = true;
+                break;
+            }
+        }
+    }
+
+    if !has_charge {
+        conn.execute(
+            "ALTER TABLE bill_shares ADD COLUMN additional_charge_minor INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 

@@ -72,7 +72,7 @@ impl Treasurer {
                 boarder_id: &share.share.boarder_id,
                 boarder_name: share.display_name(),
                 boarder_archived: share.boarder_archived,
-                amount_due_minor: share.share.amount_due_minor,
+                amount_due_minor: share.share.total_due_minor(),
                 state: &share.state,
             })
             .collect();
@@ -224,7 +224,10 @@ impl Treasurer {
         });
 
         let summary = LedgerSummary {
-            expected_minor: items.iter().map(|item| item.share.share.amount_due_minor).sum(),
+            expected_minor: items
+                .iter()
+                .map(|item| item.share.share.total_due_minor())
+                .sum(),
             applied_minor: items.iter().map(|item| item.state.applied_minor).sum(),
             outstanding_minor: items.iter().map(|item| item.state.balance_minor).sum(),
             change_outstanding_minor: items

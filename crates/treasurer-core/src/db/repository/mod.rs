@@ -76,6 +76,7 @@ fn map_share(row: &Row<'_>) -> rusqlite::Result<BillShare> {
         boarder_name_snapshot: row.get(3)?,
         amount_due_minor: row.get(4)?,
         created_at: row.get(5)?,
+        additional_charge_minor: row.get(6)?,
     })
 }
 
