@@ -114,7 +114,7 @@ export component NewBillScreen {
             Section {
                 SectionHeader {
                     title: "Split among";
-                    caption: "Leave amounts empty to split equally";
+                    caption: "Leave amounts empty to split equally. A typed amount is fixed; the rest are split equally.";
                 }
 
                 if root.picks.length == 0 : Card {
@@ -164,7 +164,7 @@ export component NewBillScreen {
                 }
 
                 Text {
-                    text: "Custom amounts must add up to the total. With an equal split, leftover centavos go to the first selected boarders.";
+                    text: "A typed amount is fixed and the rest are split equally, so they always add up to the total. With an equal split, leftover centavos go to the first selected boarders.";
                     font-size: Theme.text-caption;
                     color: Theme.text-muted;
                     wrap: word-wrap;

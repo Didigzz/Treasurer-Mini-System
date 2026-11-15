@@ -33,15 +33,27 @@ export struct BoarderRow {
 
 export struct ShareRow {
     name: string,
+    // Base split share, before any additional charge.
     due: string,
     paid: string,
+    // Base share + additional charge.
     balance: string,
     // Plain decimal ("1250.00") used to prefill the payment amount.
     balance-input: string,
     change: string,
+    charge: string,
     status: string,
     has-balance: bool,
     has-change: bool,
+    has-charge: bool,
+}
+
+// One row of the live "Split preview" in the edit-share sheet.
+export struct ShareSplitPreviewRow {
+    name: string,
+    // Final share + charge.
+    amount: string,
+    pinned: bool,
 }
 
 export struct PaymentRow {

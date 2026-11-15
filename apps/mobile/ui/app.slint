@@ -1,7 +1,7 @@
 import { ScrollView } from "std-widgets.slint";
-import { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow } from "models.slint";
-import { Theme, Tone, Icons, AppButton, ButtonKind, TextField, Banner, Sheet, SheetOption } from "components.slint";
-import { Responsive, TopBar, PillNav, MenuItem } from "layout.slint";
+import { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow } from "models.slint";
+import { Theme, Tone, Icons, AppButton, ButtonKind, TextField, Banner, Sheet, SheetOption, SectionHeader, StatusPill } from "components.slint";
+import { Responsive, TopBar, PillNav, MenuItem, ListCard } from "layout.slint";
 import { DashboardScreen } from "screens/dashboard.slint";
 import { BoardersScreen } from "screens/boarders.slint";
 import { HistoryScreen } from "screens/history.slint";
@@ -10,10 +10,10 @@ import { NewBillScreen } from "screens/new-bill.slint";
 import { BillScreen } from "screens/bill.slint";
 import { LedgerScreen } from "screens/ledger.slint";
 
-export { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow } from "models.slint";
+export { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow } from "models.slint";
 
 // Bottom sheets owned by the window so they cover the navigation too.
-enum SheetKind { none, pay, void-payment, currency, bill-type, boarder-actions, rename, restore }
+enum SheetKind { none, pay, void-payment, edit-share, currency, bill-type, boarder-actions, rename, restore }
 
 // Screen ids (set from Rust): 0 Dashboard, 1 Boarders, 3 History, 4 Settings,
 // 10 Bill, 11 Boarder ledger, 12 New bill.
@@ -46,6 +46,7 @@ export component AppWindow inherits Window {
     in property <[BoarderRow]> boarders: [];
     in property <[ShareRow]> shares: [];
     in property <[PaymentRow]> payments: [];
+    in property <[ShareSplitPreviewRow]> share-preview: [];
     in property <[HistoryRow]> history: [];
     in property <[TypeRow]> types: [];
     in property <[PickRow]> picks: [];
@@ -68,6 +69,20 @@ export component AppWindow inherits Window {
     in-out property <string> payment-date: "";
     in-out property <string> void-reason: "";
 
+    // Share filter and editor state (bill screen only).
+    in-out property <string> share-filter: "";
+    in-out property <int> share-filter-mode: 0;
+    in property <int> share-total-count: 0;
+    in property <int> share-visible-count: 0;
+    in-out property <string> share-edit-amount: "";
+    in-out property <string> share-edit-charge: "";
+    in property <string> share-edit-name: "";
+    in property <string> share-edit-error: "";
+    in property <string> share-edit-footer: "";
+    in property <bool> share-edit-locked: false;
+    in property <bool> share-edit-archived: false;
+    in property <bool> share-edit-can-save: false;
+
     in property <string> detail-title: "";
     in property <string> detail-subtitle: "";
     in property <string> detail-initials: "";
@@ -78,6 +93,7 @@ export component AppWindow inherits Window {
     in property <string> detail-outstanding: "";
     in property <string> detail-change: "";
     in property <float> detail-progress: 0;
+    in property <string> detail-total: "";
     in property <string> last-backup: "";
     in property <string> app-version: "";
 
@@ -103,6 +119,11 @@ export component AppWindow inherits Window {
     callback void-payment(int);
     callback return-change(int);
     callback archive-bill();
+    callback set-share-filter(string);
+    callback set-share-filter-mode(int);
+    callback edit-share(int);
+    callback preview-share-split(string, string);
+    callback save-share();
     callback export-backup();
     callback import-backup();
     callback save-settings();
@@ -331,6 +352,16 @@ export component AppWindow inherits Window {
                     detail-progress: root.detail-progress;
                     shares: root.shares;
                     payments: root.payments;
+                    share-filter <=> root.share-filter;
+                    share-filter-mode <=> root.share-filter-mode;
+                    share-total-count: root.share-total-count;
+                    share-visible-count: root.share-visible-count;
+                    set-share-filter(value) => { root.set-share-filter(value); }
+                    set-share-filter-mode(mode) => { root.set-share-filter-mode(mode); }
+                    edit-share(i) => {
+                        root.open-sheet(SheetKind.edit-share, i);
+                        root.edit-share(i);
+                    }
                     pay(i) => {
                         root.payment-amount = "";
                         root.payment-date = "";
@@ -469,6 +500,118 @@ export component AppWindow inherits Window {
                     root.pay-share(root.sheet-index);
                     if !root.message-error { root.close-sheet(); }
                 }
+            }
+        }
+
+        if root.sheet == SheetKind.edit-share : Sheet {
+            title: "Edit share";
+            subtitle: root.share-edit-name + " · Total " + root.detail-total;
+            error: root.sheet-error;
+            clear-error => { root.clear-error(); }
+            bottom-inset: root.bottom-inset;
+            dismiss => { root.close-sheet(); }
+
+            if root.share-edit-archived : Banner {
+                text: "This bill is archived. Changes apply immediately and appear on the bill; they are kept if you restore it.";
+                warning: true;
+                dismissible: false;
+            }
+
+            if root.share-edit-error != "" : Banner {
+                text: root.share-edit-error;
+                error: true;
+                dismissible: false;
+            }
+
+            TextField {
+                label: "Share amount";
+                placeholder: "0.00";
+                input-type: InputType.number;
+                enabled: !root.share-edit-locked;
+                hint: root.share-edit-locked
+                    ? "Share amounts are locked because payments have been recorded. Additional charges can still be changed."
+                    : "";
+                text <=> root.share-edit-amount;
+                edited(value) => { root.preview-share-split(value, root.share-edit-charge); }
+            }
+
+            TextField {
+                label: "Additional charge";
+                placeholder: "0.00";
+                input-type: InputType.number;
+                hint: "Optional, added on top of this share. It is not part of the bill total.";
+                text <=> root.share-edit-charge;
+                edited(value) => { root.preview-share-split(root.share-edit-amount, value); }
+            }
+
+            VerticalLayout {
+                spacing: Theme.space-2;
+                SectionHeader { title: "Split preview"; }
+                ScrollView {
+                    height: min(root.share-preview.length * 44px + 2px, 184px);
+                    VerticalLayout {
+                        ListCard {
+                            for row[i] in root.share-preview : Rectangle {
+                                height: 44px;
+                                background: row.pinned ? Theme.accent-soft : transparent;
+
+                                if i > 0 : Rectangle {
+                                    x: Theme.space-3;
+                                    width: parent.width - Theme.space-3;
+                                    height: 1px;
+                                    background: Theme.divider;
+                                }
+
+                                HorizontalLayout {
+                                    padding-left: Theme.space-3;
+                                    padding-right: Theme.space-3;
+                                    spacing: Theme.space-2;
+                                    Text {
+                                        text: row.name;
+                                        horizontal-stretch: 1;
+                                        vertical-alignment: center;
+                                        font-size: Theme.text-sub;
+                                        color: Theme.text;
+                                        overflow: elide;
+                                    }
+                                    if row.pinned : StatusPill {
+                                        text: "Edited";
+                                        tone: Tone.accent;
+                                    }
+                                    Text {
+                                        text: row.amount;
+                                        vertical-alignment: center;
+                                        font-size: Theme.text-sub;
+                                        font-weight: Theme.weight-semibold;
+                                        color: Theme.text;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: root.share-edit-footer;
+                    font-size: Theme.text-caption;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            AppButton {
+                text: "Save share";
+                icon: Icons.check;
+                enabled: root.share-edit-can-save;
+                clicked => {
+                    root.begin-action();
+                    root.save-share();
+                    if !root.message-error { root.close-sheet(); }
+                }
+            }
+            AppButton {
+                text: "Cancel";
+                kind: ButtonKind.secondary;
+                clicked => { root.close-sheet(); }
             }
         }
 

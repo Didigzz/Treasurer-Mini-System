@@ -166,6 +166,7 @@ export component TextField {
     in property <string> placeholder;
     in property <string> hint;
     in property <InputType> input-type: InputType.text;
+    in property <bool> enabled: true;
     in-out property <string> text <=> input.text;
     out property <bool> has-focus: input.has-focus;
     callback edited(string);
@@ -174,6 +175,7 @@ export component TextField {
     forward-focus: input;
 
     VerticalLayout {
+        opacity: root.enabled ? 1 : 0.45;
         spacing: 6px;
 
         if root.label != "" : FieldLabel { text: root.label; }
@@ -188,6 +190,7 @@ export component TextField {
             animate border-color { duration: Theme.fast; }
 
             TouchArea {
+                enabled: root.enabled;
                 clicked => { input.focus(); }
             }
 
@@ -215,11 +218,14 @@ export component TextField {
                     height: 100%;
                     vertical-alignment: center;
                     single-line: true;
+                    enabled: root.enabled;
+                    read-only: !root.enabled;
                     input-type: root.input-type;
                     font-size: Theme.text-body;
                     color: Theme.text;
                     selection-background-color: Theme.accent-soft;
                     selection-foreground-color: Theme.text;
+                    accessible-enabled: root.enabled;
                     accessible-label: root.label != "" ? root.label : root.placeholder;
 
                     cursor-position-changed(pos) => {
@@ -582,9 +588,17 @@ export component EmptyState {
 export component Banner inherits Rectangle {
     in property <string> text;
     in property <bool> error;
+    in property <bool> warning: false;
+    in property <bool> dismissible: true;
     callback dismiss();
 
-    background: error ? Theme.danger-soft : Theme.success-soft;
+    property <color> tone-color: error ? Theme.danger
+        : warning ? Theme.warning
+        : Theme.success;
+
+    background: error ? Theme.danger-soft
+        : warning ? Theme.warning-soft
+        : Theme.success-soft;
     border-radius: Theme.radius-md;
     accessible-role: AccessibleRole.text;
     accessible-label: (error ? "Error: " : "") + root.text;
@@ -597,8 +611,8 @@ export component Banner inherits Rectangle {
         spacing: 10px;
 
         Icon {
-            path: root.error ? Icons.alert : Icons.check;
-            color: root.error ? Theme.danger : Theme.success;
+            path: root.error || root.warning ? Icons.alert : Icons.check;
+            color: root.tone-color;
             size: 20px;
         }
         Text {
@@ -608,13 +622,13 @@ export component Banner inherits Rectangle {
             wrap: word-wrap;
             font-size: Theme.text-sub;
             font-weight: Theme.weight-medium;
-            color: root.error ? Theme.danger : Theme.success;
+            color: root.tone-color;
         }
-        IconButton {
+        if root.dismissible : IconButton {
             icon: Icons.close;
             label: "Dismiss message";
             icon-size: 18px;
-            tint: root.error ? Theme.danger : Theme.success;
+            tint: root.tone-color;
             clicked => { root.dismiss(); }
         }
     }

@@ -16,7 +16,7 @@ use treasurer_core::db::repository::Treasurer;
 use treasurer_core::models::*;
 use treasurer_core::money;
 
-use self::bills::Pick;
+use self::bills::{Pick, ShareEntry};
 
 use crate::AppWindow;
 
@@ -47,7 +47,10 @@ struct App {
     balance_ids: Vec<String>,
     boarder_ids: Vec<String>,
     boarder_archived: Vec<bool>,
-    share_ids: Vec<String>,
+    /// Full, unfiltered shares of the open bill (or ledger), in bill order.
+    detail_shares: Vec<ShareEntry>,
+    /// Visible share IDs, parallel to the `shares` model.
+    display_share_ids: Vec<String>,
     payment_ids: Vec<String>,
     history_slots: Vec<(i32, i32)>,
     type_ids: Vec<String>,
@@ -56,6 +59,13 @@ struct App {
     pick_rows: Vec<Pick>,
     detail_bill: Option<String>,
     detail_boarder: Option<String>,
+    detail_total_minor: i64,
+    detail_locked: bool,
+    detail_archived: bool,
+    share_filter: String,
+    share_filter_mode: i32,
+    /// Share ID captured when the editor opens; resolved against `detail_shares`.
+    edit_share_id: Option<String>,
     ledger_bill_ids: Vec<String>,
     /// Tab (0, 1 or 3) that pushed screens return to.
     last_tab: i32,
@@ -79,7 +89,8 @@ impl App {
             balance_ids: Vec::new(),
             boarder_ids: Vec::new(),
             boarder_archived: Vec::new(),
-            share_ids: Vec::new(),
+            detail_shares: Vec::new(),
+            display_share_ids: Vec::new(),
             payment_ids: Vec::new(),
             history_slots: Vec::new(),
             type_ids: Vec::new(),
@@ -88,6 +99,12 @@ impl App {
             pick_rows: Vec::new(),
             detail_bill: None,
             detail_boarder: None,
+            detail_total_minor: 0,
+            detail_locked: false,
+            detail_archived: false,
+            share_filter: String::new(),
+            share_filter_mode: 0,
+            edit_share_id: None,
             ledger_bill_ids: Vec::new(),
             last_tab: 0,
             bill_from_ledger: false,
@@ -109,12 +126,26 @@ impl App {
     /// their id lists before loading another detail so a failed load can never
     /// leave rows that point at a different bill's ids.
     fn clear_detail_lists(&mut self) {
-        self.share_ids.clear();
+        self.detail_shares.clear();
+        self.display_share_ids.clear();
         self.payment_ids.clear();
         self.ledger_bill_ids.clear();
+        self.detail_total_minor = 0;
+        self.detail_locked = false;
+        self.detail_archived = false;
+        self.share_filter.clear();
+        self.share_filter_mode = 0;
+        self.edit_share_id = None;
         let ui = self.ui();
         ui.set_shares(slint::ModelRc::default());
         ui.set_payments(slint::ModelRc::default());
+        ui.set_share_preview(slint::ModelRc::default());
+        ui.set_share_filter("".into());
+        ui.set_share_filter_mode(0);
+        ui.set_share_total_count(0);
+        ui.set_share_visible_count(0);
+        ui.set_share_edit_error("".into());
+        ui.set_share_edit_can_save(false);
     }
 
     /// Shows a confirmation that an action succeeded.

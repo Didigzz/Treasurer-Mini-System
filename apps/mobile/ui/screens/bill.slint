@@ -1,4 +1,4 @@
-import { Theme, Tone, Icon, Icons, Card, AppButton, ButtonKind, StatusPill, ProgressBar, SectionHeader, EmptyState } from "../components.slint";
+import { Theme, Tone, Icon, Icons, Card, AppButton, ButtonKind, StatusPill, ProgressBar, SectionHeader, EmptyState, TextField, Segmented } from "../components.slint";
 import { Page, Section, ListCard, ListRow, SummaryMetrics } from "../layout.slint";
 import { ShareRow, PaymentRow } from "../models.slint";
 
@@ -88,10 +88,18 @@ export component BillScreen {
     in property <[ShareRow]> shares;
     in property <[PaymentRow]> payments;
 
+    in-out property <string> share-filter: "";
+    in-out property <int> share-filter-mode: 0;
+    in property <int> share-total-count: 0;
+    in property <int> share-visible-count: 0;
+
     callback pay(int);
     callback void-payment(int);
     callback return-change(int);
     callback archive-bill();
+    callback set-share-filter(string);
+    callback set-share-filter-mode(int);
+    callback edit-share(int);
 
     Page {
         width: 100%;
@@ -164,13 +172,48 @@ export component BillScreen {
         Section {
             SectionHeader {
                 title: "Shares";
-                caption: "Tap Pay to record money received";
+                caption: root.share-total-count == 0
+                    ? "Tap a name to edit the split"
+                    : (root.share-filter != "" || root.share-filter-mode != 0)
+                        ? root.share-visible-count + " of " + root.share-total-count + " boarders"
+                        : root.share-total-count + (root.share-total-count == 1 ? " boarder" : " boarders");
             }
-            ListCard {
+
+            if root.share-total-count > 0 : VerticalLayout {
+                spacing: Theme.space-2;
+                TextField {
+                    placeholder: "Find a boarder";
+                    text <=> root.share-filter;
+                    edited(value) => { root.set-share-filter(value); }
+                }
+                Segmented {
+                    options: ["All", "Unpaid", "Paid"];
+                    selected: root.share-filter-mode;
+                    label: "Filter shares by status";
+                    select(i) => { root.set-share-filter-mode(i); }
+                }
+            }
+
+            if root.share-total-count > 0 && root.shares.length == 0 : Card {
+                EmptyState {
+                    icon: Icons.people;
+                    title: "No boarders match";
+                    body: "Try another name or status.";
+                    action-text: "Clear filter";
+                    action => {
+                        root.set-share-filter("");
+                        root.set-share-filter-mode(0);
+                    }
+                }
+            }
+
+            if root.shares.length > 0 : ListCard {
                 for share[i] in root.shares : ListRow {
                     show-divider: i > 0;
                     tappable: false;
-                    label: share.name + ", " + share.status + ", balance " + share.balance;
+                    label: share.name + ", " + share.status + ", balance " + share.balance
+                        + (share.has-charge ? ", includes " + share.charge + " additional charge" : "")
+                        + ", opens share editor";
 
                     HorizontalLayout {
                         padding-left: Theme.space-4;
@@ -179,44 +222,74 @@ export component BillScreen {
                         padding-bottom: Theme.space-3;
                         spacing: Theme.space-3;
 
-                        VerticalLayout {
+                        // Tappable left region: opens the share editor. The Pay
+                        // button keeps its own tap target and is outside it.
+                        Rectangle {
                             horizontal-stretch: 1;
-                            alignment: center;
-                            spacing: 3px;
-                            HorizontalLayout {
-                                spacing: Theme.space-2;
+                            border-radius: Theme.radius-md;
+                            background: left-touch.pressed ? Theme.surface-pressed : transparent;
+                            accessible-role: button;
+                            accessible-label: share.name + ", " + share.status + ", balance " + share.balance
+                                + (share.has-charge ? ", includes " + share.charge + " additional charge" : "")
+                                + ", opens share editor";
+                            accessible-action-default => { root.edit-share(i); }
+
+                            animate background { duration: Theme.fast; }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 3px;
+                                HorizontalLayout {
+                                    spacing: Theme.space-2;
+                                    Text {
+                                        text: share.name;
+                                        font-size: Theme.text-body;
+                                        font-weight: Theme.weight-semibold;
+                                        color: Theme.text;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                    StatusPill {
+                                        text: share.status;
+                                        tone: Theme.status-tone(share.status);
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Icon {
+                                        path: Icons.chevron-right;
+                                        color: Theme.text-faint;
+                                        size: 16px;
+                                    }
+                                }
                                 Text {
-                                    text: share.name;
-                                    font-size: Theme.text-body;
-                                    font-weight: Theme.weight-semibold;
-                                    color: Theme.text;
+                                    text: share.has-balance ? share.balance + " left to pay" : "Fully paid";
+                                    font-size: Theme.text-sub;
+                                    font-weight: Theme.weight-medium;
+                                    color: share.has-balance ? Theme.danger : Theme.success;
+                                }
+                                Text {
+                                    text: share.paid + " paid of " + share.due;
+                                    font-size: Theme.text-sub;
+                                    color: Theme.text-muted;
                                     overflow: elide;
-                                    vertical-alignment: center;
                                 }
-                                StatusPill {
-                                    text: share.status;
-                                    tone: Theme.status-tone(share.status);
+                                if share.has-charge : Text {
+                                    text: "+ " + share.charge + " additional charge";
+                                    font-size: Theme.text-sub;
+                                    color: Theme.warning;
+                                    overflow: elide;
                                 }
-                                Rectangle { horizontal-stretch: 1; }
+                                if share.has-change : Text {
+                                    text: share.change + " change to return";
+                                    font-size: Theme.text-sub;
+                                    color: Theme.warning;
+                                }
                             }
-                            Text {
-                                text: share.has-balance ? share.balance + " left to pay" : "Fully paid";
-                                font-size: Theme.text-sub;
-                                font-weight: Theme.weight-medium;
-                                color: share.has-balance ? Theme.danger : Theme.success;
-                            }
-                            Text {
-                                text: share.paid + " paid of " + share.due;
-                                font-size: Theme.text-sub;
-                                color: Theme.text-muted;
-                                overflow: elide;
-                            }
-                            if share.has-change : Text {
-                                text: share.change + " change to return";
-                                font-size: Theme.text-sub;
-                                color: Theme.warning;
+
+                            left-touch := TouchArea {
+                                clicked => { root.edit-share(i); }
                             }
                         }
+
                         VerticalLayout {
                             alignment: center;
                             AppButton {

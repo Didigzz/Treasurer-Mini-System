@@ -78,15 +78,21 @@ impl App {
                     money::format_short_period(item.bill.period_year, item.bill.period_month)
                 )
                 .into(),
-                due: money::format_money(item.share.share.amount_due_minor, &self.currency).into(),
+                due: money::format_money(item.share.share.total_due_minor(), &self.currency).into(),
                 paid: money::format_money(item.state.paid_minor, &self.currency).into(),
                 balance: money::format_money(item.state.balance_minor, &self.currency).into(),
                 balance_input: money::minor_to_input_value(item.state.balance_minor.max(0)).into(),
                 change: money::format_money(item.state.change_outstanding_minor, &self.currency)
                     .into(),
+                charge: money::format_money(
+                    item.share.share.additional_charge_minor,
+                    &self.currency,
+                )
+                .into(),
                 status: item.state.status.label().into(),
                 has_balance: item.state.balance_minor > 0,
                 has_change: item.state.change_outstanding_minor > 0,
+                has_charge: item.share.share.additional_charge_minor > 0,
             })
             .collect();
         ui.set_shares(ModelRc::new(VecModel::from(shares)));

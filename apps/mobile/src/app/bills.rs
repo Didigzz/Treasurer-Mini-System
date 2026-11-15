@@ -1,21 +1,37 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use chrono::{Local, NaiveDate, TimeZone};
 use slint::{ModelRc, SharedString, VecModel};
 
-use treasurer_core::calculations::{equal_split, validate_custom_shares};
+use treasurer_core::calculations::{
+    resplit_with_pinned, split_with_overrides, validate_additional_charge, SplitOutcome,
+};
 use treasurer_core::db::repository::now_ms;
 use treasurer_core::models::*;
 use treasurer_core::money;
 
 use super::{progress, App};
-use crate::{AppWindow, PaymentRow, PickRow, ShareRow};
+use crate::{AppWindow, PaymentRow, PickRow, ShareRow, ShareSplitPreviewRow};
 
 pub(super) struct Pick {
     pub(super) boarder_id: String,
     pub(super) name: String,
     pub(super) selected: bool,
     pub(super) amount: String,
+}
+
+/// Raw values for one share of the open bill. Formatting happens when the
+/// filtered rows are built, so the filter and the editor never reparse money.
+pub(super) struct ShareEntry {
+    pub(super) id: String,
+    pub(super) boarder_id: String,
+    pub(super) name: String,
+    pub(super) base_due: i64,
+    pub(super) charge: i64,
+    pub(super) paid: i64,
+    pub(super) balance: i64,
+    pub(super) change: i64,
+    pub(super) status: ShareStatus,
 }
 
 impl App {
@@ -92,12 +108,6 @@ impl App {
             }
         };
 
-        self.share_ids = detail
-            .shares
-            .iter()
-            .map(|share| share.share.id.clone())
-            .collect();
-
         let ui = self.ui();
         ui.set_detail_title(
             format!(
@@ -131,24 +141,29 @@ impl App {
         );
         ui.set_detail_progress(progress(summary.applied_minor, summary.expected_minor));
 
-        let shares: Vec<ShareRow> = detail
+        self.detail_total_minor = detail.bill.total_minor;
+        self.detail_locked = detail.is_locked;
+        self.detail_archived = detail.bill.archived_at.is_some();
+        ui.set_detail_total(
+            money::format_money(detail.bill.total_minor, &self.currency).into(),
+        );
+
+        self.detail_shares = detail
             .shares
             .iter()
-            .map(|share| ShareRow {
-                name: share.display_name().to_string().into(),
-                due: money::format_money(share.share.amount_due_minor, &self.currency).into(),
-                paid: money::format_money(share.state.paid_minor, &self.currency).into(),
-                balance: money::format_money(share.state.balance_minor, &self.currency).into(),
-                balance_input: money::minor_to_input_value(share.state.balance_minor.max(0))
-                    .into(),
-                change: money::format_money(share.state.change_outstanding_minor, &self.currency)
-                    .into(),
-                status: share.state.status.label().into(),
-                has_balance: share.state.balance_minor > 0,
-                has_change: share.state.change_outstanding_minor > 0,
+            .map(|share| ShareEntry {
+                id: share.share.id.clone(),
+                boarder_id: share.share.boarder_id.clone(),
+                name: share.display_name().to_string(),
+                base_due: share.share.amount_due_minor,
+                charge: share.share.additional_charge_minor,
+                paid: share.state.paid_minor,
+                balance: share.state.balance_minor,
+                change: share.state.change_outstanding_minor,
+                status: share.state.status,
             })
             .collect();
-        ui.set_shares(ModelRc::new(VecModel::from(shares)));
+        self.render_shares();
 
         let mut payment_rows: Vec<(i64, PaymentRow, String)> = Vec::new();
         for share in &detail.shares {
@@ -259,47 +274,34 @@ impl App {
             return self.message("Select at least one boarder.");
         }
 
-        let any_custom = selected.iter().any(|pick| !pick.amount.trim().is_empty());
-        let shares: Vec<SplitResult> = if any_custom {
-            let mut shares = Vec::with_capacity(selected.len());
-            for pick in &selected {
-                let amount = if pick.amount.trim().is_empty() {
-                    0
-                } else {
-                    match money::parse_amount_input(&pick.amount, self.allow_centavos) {
-                        Some(amount) => amount,
-                        None => return self.message("Enter valid custom amounts."),
-                    }
-                };
-                shares.push(SplitResult {
-                    boarder_id: pick.boarder_id.clone(),
-                    amount_minor: amount,
-                });
+        // A typed amount is pinned; every blank amount shares the remainder.
+        let mut overrides: HashMap<String, i64> = HashMap::new();
+        for pick in &selected {
+            if pick.amount.trim().is_empty() {
+                continue;
             }
-            let validation = validate_custom_shares(total_minor, &shares);
-            if !validation.valid {
-                return self.message(
-                    validation
-                        .error
-                        .unwrap_or_else(|| "Check the split.".into()),
-                );
-            }
-            shares
-        } else {
-            let boarders: Vec<SplitBoarder> = selected
-                .iter()
-                .map(|pick| SplitBoarder {
-                    boarder_id: pick.boarder_id.clone(),
-                    name: pick.name.clone(),
-                    created_at: 0,
-                })
-                .collect();
-            match equal_split(total_minor, &boarders, self.allow_centavos) {
-                treasurer_core::calculations::SplitOutcome::Ok(success) => success.shares,
-                treasurer_core::calculations::SplitOutcome::Err(failure) => {
-                    return self.message(failure.error)
-                }
-            }
+            let Some(amount) = money::parse_money_to_minor(&pick.amount) else {
+                return self.message("Enter valid custom amounts.");
+            };
+            overrides.insert(pick.boarder_id.clone(), amount);
+        }
+
+        let boarders: Vec<SplitBoarder> = selected
+            .iter()
+            .map(|pick| SplitBoarder {
+                boarder_id: pick.boarder_id.clone(),
+                name: pick.name.clone(),
+                created_at: 0,
+            })
+            .collect();
+        let shares = match split_with_overrides(
+            total_minor,
+            &boarders,
+            &overrides,
+            self.allow_centavos,
+        ) {
+            SplitOutcome::Ok(success) => success.shares,
+            SplitOutcome::Err(failure) => return self.message(failure.error),
         };
 
         let due_date = {
@@ -345,8 +347,290 @@ impl App {
         }
     }
 
+    /// Filters `detail_shares` by name and status, then rebuilds the visible
+    /// row model and the parallel ID list used by Pay and Edit.
+    pub(super) fn render_shares(&mut self) {
+        let currency = self.currency.clone();
+        let needle = self.share_filter.trim().to_lowercase();
+        let mode = self.share_filter_mode;
+
+        let visible: Vec<&ShareEntry> = self
+            .detail_shares
+            .iter()
+            .filter(|entry| needle.is_empty() || entry.name.to_lowercase().contains(&needle))
+            .filter(|entry| match mode {
+                1 => entry.balance > 0,
+                2 => entry.balance == 0,
+                _ => true,
+            })
+            .collect();
+
+        let rows: Vec<ShareRow> = visible
+            .iter()
+            .map(|entry| ShareRow {
+                name: entry.name.clone().into(),
+                due: money::format_money(entry.base_due, &currency).into(),
+                paid: money::format_money(entry.paid, &currency).into(),
+                balance: money::format_money(entry.balance, &currency).into(),
+                balance_input: money::minor_to_input_value(entry.balance.max(0)).into(),
+                change: money::format_money(entry.change, &currency).into(),
+                charge: money::format_money(entry.charge, &currency).into(),
+                status: entry.status.label().into(),
+                has_balance: entry.balance > 0,
+                has_change: entry.change > 0,
+                has_charge: entry.charge > 0,
+            })
+            .collect();
+
+        self.display_share_ids = visible.iter().map(|entry| entry.id.clone()).collect();
+        debug_assert_eq!(self.display_share_ids.len(), rows.len());
+
+        let ui = self.ui();
+        ui.set_shares(ModelRc::new(VecModel::from(rows)));
+        ui.set_share_total_count(self.detail_shares.len() as i32);
+        ui.set_share_visible_count(self.display_share_ids.len() as i32);
+    }
+
+    pub(super) fn set_share_filter(&mut self, text: &str) {
+        self.share_filter = text.to_string();
+        self.ui().set_share_filter(self.share_filter.clone().into());
+        self.render_shares();
+    }
+
+    pub(super) fn set_share_filter_mode(&mut self, mode: i32) {
+        self.share_filter_mode = mode.clamp(0, 2);
+        self.ui()
+            .set_share_filter_mode(self.share_filter_mode);
+        self.render_shares();
+    }
+
+    /// The boarder behind the share captured when the editor opened. Using the
+    /// share ID (not the visible row index) keeps filtering harmless.
+    fn edited_boarder_id(&self) -> Option<String> {
+        let share_id = self.edit_share_id.as_deref()?;
+        self.detail_shares
+            .iter()
+            .find(|entry| entry.id == share_id)
+            .map(|entry| entry.boarder_id.clone())
+    }
+
+    fn current_split(&self) -> Vec<SplitResult> {
+        self.detail_shares
+            .iter()
+            .map(|entry| SplitResult {
+                boarder_id: entry.boarder_id.clone(),
+                amount_minor: entry.base_due,
+            })
+            .collect()
+    }
+
+    fn split_boarders(&self) -> Vec<SplitBoarder> {
+        self.detail_shares
+            .iter()
+            .map(|entry| SplitBoarder {
+                boarder_id: entry.boarder_id.clone(),
+                name: entry.name.clone(),
+                created_at: 0,
+            })
+            .collect()
+    }
+
+    fn parse_share_edit(&self, amount_text: &str, charge_text: &str) -> Result<(i64, i64), String> {
+        if amount_text.trim().is_empty() {
+            return Err("Enter a share amount.".to_string());
+        }
+        let amount = money::parse_money_to_minor(amount_text)
+            .ok_or_else(|| "Enter a valid share amount.".to_string())?;
+        let charge = if charge_text.trim().is_empty() {
+            0
+        } else {
+            money::parse_money_to_minor(charge_text)
+                .ok_or_else(|| "Enter a valid additional charge.".to_string())?
+        };
+        if let Some(message) = validate_additional_charge(charge, self.allow_centavos) {
+            return Err(message);
+        }
+        Ok((amount, charge))
+    }
+
+    pub(super) fn open_edit_share(&mut self, index: usize) {
+        let Some(share_id) = self.display_share_ids.get(index).cloned() else {
+            return;
+        };
+        let Some((name, base_due, charge)) = self
+            .detail_shares
+            .iter()
+            .find(|entry| entry.id == share_id)
+            .map(|entry| (entry.name.clone(), entry.base_due, entry.charge))
+        else {
+            return;
+        };
+
+        self.edit_share_id = Some(share_id);
+
+        let amount = money::minor_to_input_value(base_due);
+        let charge_text = if charge > 0 {
+            money::minor_to_input_value(charge)
+        } else {
+            String::new()
+        };
+
+        let ui = self.ui();
+        ui.set_share_edit_name(name.into());
+        ui.set_detail_total(
+            money::format_money(self.detail_total_minor, &self.currency).into(),
+        );
+        ui.set_share_edit_amount(amount.clone().into());
+        ui.set_share_edit_charge(charge_text.clone().into());
+        ui.set_share_edit_locked(self.detail_locked);
+        ui.set_share_edit_archived(self.detail_archived);
+        self.preview_share_split(&amount, &charge_text);
+    }
+
+    pub(super) fn preview_share_split(&mut self, amount_text: &str, charge_text: &str) {
+        let Some(boarder_id) = self.edited_boarder_id() else {
+            return;
+        };
+
+        let (amount_minor, charge_minor) = match self.parse_share_edit(amount_text, charge_text) {
+            Ok(values) => values,
+            Err(message) => {
+                let ui = self.ui();
+                ui.set_share_edit_error(message.into());
+                ui.set_share_edit_can_save(false);
+                return;
+            }
+        };
+
+        // Locked bills keep their stored split; only the charge can change.
+        let split = if self.detail_locked {
+            self.current_split()
+        } else {
+            match resplit_with_pinned(
+                self.detail_total_minor,
+                &self.split_boarders(),
+                &boarder_id,
+                amount_minor,
+                self.allow_centavos,
+            ) {
+                SplitOutcome::Ok(success) => success.shares,
+                SplitOutcome::Err(failure) => {
+                    let ui = self.ui();
+                    ui.set_share_edit_error(failure.error.into());
+                    ui.set_share_edit_can_save(false);
+                    return;
+                }
+            }
+        };
+
+        let mut rows = Vec::with_capacity(self.detail_shares.len());
+        let mut shares_total = 0i64;
+        let mut charges_total = 0i64;
+        for entry in &self.detail_shares {
+            let base = split
+                .iter()
+                .find(|result| result.boarder_id == entry.boarder_id)
+                .map(|result| result.amount_minor)
+                .unwrap_or(entry.base_due);
+            let charge = if entry.boarder_id == boarder_id {
+                charge_minor
+            } else {
+                entry.charge
+            };
+            shares_total += base;
+            charges_total += charge;
+            rows.push(ShareSplitPreviewRow {
+                name: entry.name.clone().into(),
+                amount: money::format_money(base + charge, &self.currency).into(),
+                pinned: entry.boarder_id == boarder_id,
+            });
+        }
+
+        let ui = self.ui();
+        ui.set_share_preview(ModelRc::new(VecModel::from(rows)));
+        ui.set_share_edit_footer(
+            format!(
+                "Shares {} · Charges {} · Expected {}",
+                money::format_money(shares_total, &self.currency),
+                money::format_money(charges_total, &self.currency),
+                money::format_money(shares_total + charges_total, &self.currency)
+            )
+            .into(),
+        );
+        ui.set_share_edit_error("".into());
+        ui.set_share_edit_can_save(true);
+    }
+
+    pub(super) fn save_share(&mut self) {
+        let Some(bill_id) = self.detail_bill.clone() else {
+            return;
+        };
+        let Some(boarder_id) = self.edited_boarder_id() else {
+            return;
+        };
+
+        let ui = self.ui();
+        let amount_text = ui.get_share_edit_amount().to_string();
+        let charge_text = ui.get_share_edit_charge().to_string();
+
+        let (amount_minor, charge_minor) = match self.parse_share_edit(&amount_text, &charge_text) {
+            Ok(values) => values,
+            Err(message) => {
+                ui.set_share_edit_error(message.into());
+                ui.set_share_edit_can_save(false);
+                return;
+            }
+        };
+
+        let split = if self.detail_locked {
+            self.current_split()
+        } else {
+            match resplit_with_pinned(
+                self.detail_total_minor,
+                &self.split_boarders(),
+                &boarder_id,
+                amount_minor,
+                self.allow_centavos,
+            ) {
+                SplitOutcome::Ok(success) => success.shares,
+                SplitOutcome::Err(failure) => {
+                    ui.set_share_edit_error(failure.error.into());
+                    ui.set_share_edit_can_save(false);
+                    return;
+                }
+            }
+        };
+
+        let changed_amounts = split.iter().any(|result| {
+            self.detail_shares
+                .iter()
+                .find(|entry| entry.boarder_id == result.boarder_id)
+                .map(|entry| entry.base_due != result.amount_minor)
+                .unwrap_or(false)
+        });
+
+        match self
+            .db
+            .save_share_edit(&bill_id, &split, &boarder_id, charge_minor)
+        {
+            Ok(()) => {
+                self.edit_share_id = None;
+                self.refresh_bill_detail();
+                self.refresh_dashboard();
+                self.refresh_history();
+                self.refresh_boarders();
+                self.notify(if changed_amounts {
+                    "Share updated."
+                } else {
+                    "Additional charge updated."
+                });
+            }
+            Err(error) => self.message(format!("{error:#}")),
+        }
+    }
+
     pub(super) fn pay_share(&mut self, index: usize) {
-        let Some(share_id) = self.share_ids.get(index).cloned() else {
+        let Some(share_id) = self.display_share_ids.get(index).cloned() else {
             return self.message("That share is no longer available. Go back and reopen the bill.");
         };
         let ui = self.ui();
@@ -477,6 +761,32 @@ pub(super) fn wire(app: &Rc<RefCell<App>>, ui: &AppWindow) {
     {
         let app = app.clone();
         ui.on_archive_bill(move || app.borrow_mut().archive_bill());
+    }
+    {
+        let app = app.clone();
+        ui.on_set_share_filter(move |text| app.borrow_mut().set_share_filter(&text));
+    }
+    {
+        let app = app.clone();
+        ui.on_set_share_filter_mode(move |mode| {
+            app.borrow_mut().set_share_filter_mode(mode)
+        });
+    }
+    {
+        let app = app.clone();
+        ui.on_edit_share(move |index| {
+            app.borrow_mut().open_edit_share(index.max(0) as usize)
+        });
+    }
+    {
+        let app = app.clone();
+        ui.on_preview_share_split(move |amount, charge| {
+            app.borrow_mut().preview_share_split(&amount, &charge)
+        });
+    }
+    {
+        let app = app.clone();
+        ui.on_save_share(move || app.borrow_mut().save_share());
     }
 }
 
