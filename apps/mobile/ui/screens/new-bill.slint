@@ -27,13 +27,14 @@ export component NewBillScreen {
     in property <string> bill-type-label;
     in property <bool> has-bill-types;
     in property <[PickRow]> picks;
-    in-out property <string> bill-year;
-    in-out property <string> bill-month;
+    in property <string> bill-period-label;
+    in property <string> bill-due-label;
     in-out property <string> bill-total;
-    in-out property <string> bill-due;
     in-out property <string> bill-note;
 
     callback pick-type();
+    callback pick-period();
+    callback pick-due();
     callback pick-toggle(int);
     callback pick-amount(int, string);
     callback create-bill();
@@ -78,28 +79,18 @@ export component NewBillScreen {
                             text <=> root.bill-total;
                         }
 
-                        HorizontalLayout {
-                            spacing: Theme.space-3;
-                            TextField {
-                                horizontal-stretch: 1;
-                                label: "Month";
-                                placeholder: "1–12";
-                                input-type: InputType.number;
-                                text <=> root.bill-month;
-                            }
-                            TextField {
-                                horizontal-stretch: 1;
-                                label: "Year";
-                                placeholder: "2026";
-                                input-type: InputType.number;
-                                text <=> root.bill-year;
-                            }
+                        SelectField {
+                            label: "Billing month";
+                            value: root.bill-period-label;
+                            placeholder: "Choose a month";
+                            clicked => { root.pick-period(); }
                         }
 
-                        TextField {
+                        SelectField {
                             label: "Due date (optional)";
-                            placeholder: "YYYY-MM-DD";
-                            text <=> root.bill-due;
+                            value: root.bill-due-label;
+                            placeholder: "No due date";
+                            clicked => { root.pick-due(); }
                         }
 
                         TextField {
@@ -114,7 +105,7 @@ export component NewBillScreen {
             Section {
                 SectionHeader {
                     title: "Split among";
-                    caption: "Leave amounts empty to split equally. A typed amount is fixed; the rest are split equally.";
+                    caption: "Leave amounts empty to split equally. A typed amount is fixed; the rest are split equally. You can edit or exclude boarders after the bill is created.";
                 }
 
                 if root.picks.length == 0 : Card {

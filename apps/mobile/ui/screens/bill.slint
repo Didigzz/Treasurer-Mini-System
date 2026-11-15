@@ -8,9 +8,11 @@ export component PaymentItem inherits ListRow {
     in property <bool> actions: false;
     callback return-change();
     callback void();
+    callback open-payment();
 
-    tappable: false;
-    label: root.payment.title + ", " + root.payment.amount + (root.payment.voided ? ", voided" : "");
+    tappable: true;
+    label: root.payment.title + ", " + root.payment.amount + (root.payment.voided ? ", voided" : ", opens payment detail");
+    clicked => { root.open-payment(); }
 
     VerticalLayout {
         padding: Theme.space-4;
@@ -39,10 +41,12 @@ export component PaymentItem inherits ListRow {
             color: Theme.text-muted;
             wrap: word-wrap;
         }
-        if root.payment.has-change && !root.payment.voided : Text {
-            text: root.payment.change + (root.payment.can-return ? " change to return" : " change");
-            font-size: Theme.text-sub;
-            color: root.payment.can-return ? Theme.warning : Theme.text-muted;
+        if root.payment.change-status != "" && !root.payment.voided : HorizontalLayout {
+            alignment: start;
+            StatusPill {
+                text: root.payment.change-status;
+                tone: root.payment.can-return ? Tone.warning : Tone.success;
+            }
         }
         if root.payment.voided : HorizontalLayout {
             alignment: start;
@@ -57,7 +61,7 @@ export component PaymentItem inherits ListRow {
             spacing: Theme.space-2;
             padding-top: Theme.space-2;
             if root.payment.can-return : AppButton {
-                text: "Mark change returned";
+                text: "Return change";
                 icon: Icons.undo;
                 kind: ButtonKind.secondary;
                 compact: true;
@@ -100,6 +104,9 @@ export component BillScreen {
     callback set-share-filter(string);
     callback set-share-filter-mode(int);
     callback edit-share(int);
+    callback manage-shares();
+    callback open-payment(int);
+    callback return-share-change(int);
 
     Page {
         width: 100%;
@@ -177,6 +184,9 @@ export component BillScreen {
                     : (root.share-filter != "" || root.share-filter-mode != 0)
                         ? root.share-visible-count + " of " + root.share-total-count + " boarders"
                         : root.share-total-count + (root.share-total-count == 1 ? " boarder" : " boarders");
+                action-text: "Manage";
+                action-icon: Icons.sliders;
+                action => { root.manage-shares(); }
             }
 
             if root.share-total-count > 0 : VerticalLayout {
@@ -278,10 +288,18 @@ export component BillScreen {
                                     color: Theme.warning;
                                     overflow: elide;
                                 }
-                                if share.has-change : Text {
-                                    text: share.change + " change to return";
-                                    font-size: Theme.text-sub;
-                                    color: Theme.warning;
+                                if share.has-change-status : Rectangle {
+                                    height: 28px;
+                                    Text {
+                                        text: share.change-status;
+                                        font-size: Theme.text-sub;
+                                        color: share.has-change ? Theme.warning : Theme.success;
+                                        vertical-alignment: center;
+                                    }
+                                    change-touch := TouchArea {
+                                        enabled: share.has-change;
+                                        clicked => { root.return-share-change(i); }
+                                    }
                                 }
                             }
 
@@ -325,6 +343,7 @@ export component BillScreen {
                     actions: true;
                     return-change => { root.return-change(i); }
                     void => { root.void-payment(i); }
+                    open-payment => { root.open-payment(i); }
                 }
             }
         }

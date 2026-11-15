@@ -41,10 +41,13 @@ export struct ShareRow {
     // Plain decimal ("1250.00") used to prefill the payment amount.
     balance-input: string,
     change: string,
+    // "Change to Return ₱155.00", "Change Returned ₱155.00" or empty.
+    change-status: string,
     charge: string,
     status: string,
     has-balance: bool,
     has-change: bool,
+    has-change-status: bool,
     has-charge: bool,
 }
 
@@ -61,6 +64,8 @@ export struct PaymentRow {
     subtitle: string,
     amount: string,
     change: string,
+    // "Change to Return ₱155.00", "Change Returned ₱155.00" or empty.
+    change-status: string,
     can-return: bool,
     has-change: bool,
     voided: bool,
@@ -85,5 +90,21 @@ export struct TypeRow {
 export struct PickRow {
     name: string,
     selected: bool,
+    amount: string,
+}
+
+// One cell of the calendar grid. Built in Rust from money::calendar_weeks.
+export struct CalendarDay {
+    day: int,
+    in-month: bool,
+    selected: bool,
+    today: bool,
+    enabled: bool,
+    iso: string,
+}
+
+// A boarder row in the "Manage shares" sheet.
+export struct ManageRow {
+    name: string,
     amount: string,
 }

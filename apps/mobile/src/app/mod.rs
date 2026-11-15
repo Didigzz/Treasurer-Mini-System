@@ -1,6 +1,7 @@
 mod backup;
 mod bills;
 mod boarders;
+mod calendar;
 mod dashboard;
 mod history;
 mod settings;
@@ -9,8 +10,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use anyhow::{Context, Result};
+use chrono::{Local, NaiveDate};
 
-use slint::{ComponentHandle, SharedString};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use treasurer_core::db::repository::Treasurer;
 use treasurer_core::models::*;
@@ -71,11 +73,37 @@ struct App {
     last_tab: i32,
     /// The open bill was reached from a boarder ledger, so Back returns there.
     bill_from_ledger: bool,
+    /// Calendar picker: which field is being edited and its pending value.
+    calendar_target: i32,
+    calendar_date: NaiveDate,
+    calendar_year: i32,
+    calendar_month: i32,
+    calendar_month_only: bool,
+    calendar_hour: i32,
+    calendar_minute: i32,
+    calendar_pm: bool,
+    /// Payments behind the overpayment dialog and the return-change sheet.
+    overpay_payment_id: Option<String>,
+    overpay_share_id: Option<String>,
+    return_change_payment_id: Option<String>,
+    return_change_share_id: Option<String>,
+    return_change_date: NaiveDate,
+    /// Payment detail sheet and returned-date correction.
+    detail_payment_id: Option<String>,
+    detail_payment_share_id: Option<String>,
+    detail_returned_at: Option<i64>,
+    change_correction_payment_id: Option<String>,
+    /// Manage shares sheet ids.
+    manage_share_ids: Vec<String>,
+    manage_candidate_ids: Vec<String>,
+    /// Share id parallel to `payment_ids` (bill or ledger payment rows).
+    payment_share_ids: Vec<String>,
 }
 
 impl App {
     fn new(ui: slint::Weak<AppWindow>, db: Treasurer) -> Self {
         let (year, month) = money::current_period();
+        let today = Local::now().date_naive();
         Self {
             ui,
             db,
@@ -108,6 +136,26 @@ impl App {
             ledger_bill_ids: Vec::new(),
             last_tab: 0,
             bill_from_ledger: false,
+            calendar_target: 0,
+            calendar_date: today,
+            calendar_year: year,
+            calendar_month: month,
+            calendar_month_only: false,
+            calendar_hour: 12,
+            calendar_minute: 0,
+            calendar_pm: false,
+            overpay_payment_id: None,
+            overpay_share_id: None,
+            return_change_payment_id: None,
+            return_change_share_id: None,
+            return_change_date: today,
+            detail_payment_id: None,
+            detail_payment_share_id: None,
+            detail_returned_at: None,
+            change_correction_payment_id: None,
+            manage_share_ids: Vec::new(),
+            manage_candidate_ids: Vec::new(),
+            payment_share_ids: Vec::new(),
         }
     }
 
@@ -129,6 +177,7 @@ impl App {
         self.detail_shares.clear();
         self.display_share_ids.clear();
         self.payment_ids.clear();
+        self.payment_share_ids.clear();
         self.ledger_bill_ids.clear();
         self.detail_total_minor = 0;
         self.detail_locked = false;
@@ -162,6 +211,12 @@ impl App {
         self.refresh_history();
         self.refresh_settings();
         self.load_form_types();
+        let month_names: Vec<SharedString> = money::MONTH_NAMES
+            .iter()
+            .map(|name| SharedString::from(*name))
+            .collect();
+        self.ui()
+            .set_month_names(ModelRc::new(VecModel::from(month_names)));
         self.ui()
             .set_app_version("Boarding House Treasurer 1.1.0".into());
         self.ui().set_screen_title("Dashboard".into());
@@ -237,6 +292,7 @@ impl App {
         }
 
         dashboard::wire(&app, &ui);
+        calendar::wire(&app, &ui);
         boarders::wire(&app, &ui);
         bills::wire(&app, &ui);
         history::wire(&app, &ui);

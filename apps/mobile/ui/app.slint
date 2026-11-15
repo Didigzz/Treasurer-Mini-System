@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
-import { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow } from "models.slint";
-import { Theme, Tone, Icons, AppButton, ButtonKind, TextField, Banner, Sheet, SheetOption, SectionHeader, StatusPill } from "components.slint";
+import { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow, CalendarDay, ManageRow } from "models.slint";
+import { Theme, Tone, Icons, AppButton, ButtonKind, TextField, SelectField, Banner, Sheet, SheetOption, SectionHeader, StatusPill, CalendarSheet, OverpaymentDialog, DetailRow } from "components.slint";
 import { Responsive, TopBar, PillNav, MenuItem, ListCard } from "layout.slint";
 import { DashboardScreen } from "screens/dashboard.slint";
 import { BoardersScreen } from "screens/boarders.slint";
@@ -10,10 +10,10 @@ import { NewBillScreen } from "screens/new-bill.slint";
 import { BillScreen } from "screens/bill.slint";
 import { LedgerScreen } from "screens/ledger.slint";
 
-export { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow } from "models.slint";
+export { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow, CalendarDay, ManageRow } from "models.slint";
 
 // Bottom sheets owned by the window so they cover the navigation too.
-enum SheetKind { none, pay, void-payment, edit-share, currency, bill-type, boarder-actions, rename, restore }
+enum SheetKind { none, pay, void-payment, edit-share, currency, bill-type, boarder-actions, rename, delete-boarder, restore, calendar, manage-shares, return-change, payment-detail }
 
 // Screen ids (set from Rust): 0 Dashboard, 1 Boarders, 3 History, 4 Settings,
 // 10 Bill, 11 Boarder ledger, 12 New bill.
@@ -50,6 +50,10 @@ export component AppWindow inherits Window {
     in property <[HistoryRow]> history: [];
     in property <[TypeRow]> types: [];
     in property <[PickRow]> picks: [];
+    in property <[CalendarDay]> calendar-days: [];
+    in property <[ManageRow]> manage-rows: [];
+    in property <[string]> month-names: [];
+    in property <[string]> manage-candidates: [];
 
     in property <[string]> currency-names: [];
     in property <[string]> bill-type-names: [];
@@ -68,6 +72,57 @@ export component AppWindow inherits Window {
     in-out property <string> payment-amount: "";
     in-out property <string> payment-date: "";
     in-out property <string> void-reason: "";
+
+    // Calendar sheet (one picker for every date the treasurer enters).
+    in property <int> calendar-target: 0;
+    in property <string> calendar-title: "";
+    in property <int> calendar-year: 2026;
+    in property <int> calendar-month: 11;
+    in property <string> calendar-header-label: "";
+    in property <bool> calendar-month-only: false;
+    in property <bool> calendar-allow-clear: false;
+    in property <bool> calendar-include-time: false;
+    in property <int> calendar-hour: 12;
+    in property <int> calendar-minute: 0;
+    in property <bool> calendar-pm: false;
+    in property <string> calendar-time-label: "";
+
+    in property <string> bill-due-label: "";
+    in property <string> bill-period-label: "";
+    in-out property <string> payment-date-label: "";
+    in-out property <string> payment-time: "";
+    in-out property <int> share-edit-target: -1;
+
+    // Manage shares sheet.
+    in property <string> manage-subtitle: "";
+
+    // Return-change confirmation sheet.
+    in property <string> return-change-subtitle: "";
+    in property <string> return-change-amount: "";
+    in property <string> return-change-date-label: "";
+    in-out property <string> return-change-note: "";
+
+    // Payment detail sheet.
+    in property <string> pd-subtitle: "";
+    in property <string> pd-total: "";
+    in property <string> pd-received: "";
+    in property <string> pd-change-returned: "";
+    in property <string> pd-net: "";
+    in property <string> pd-payment-status: "";
+    in property <string> pd-change-status: "";
+    in property <string> pd-recorded: "";
+    in property <string> pd-returned-on: "";
+    in property <bool> pd-voided: false;
+    in property <string> pd-void-reason: "";
+    in property <bool> pd-has-returned: false;
+    in property <bool> pd-can-return: false;
+
+    // Overpayment notice.
+    in-out property <bool> overpay-shown: false;
+    in property <string> overpay-subtitle: "";
+    in property <string> overpay-amount: "";
+    in property <string> overpay-change: "";
+    in property <string> overpay-due: "";
 
     // Share filter and editor state (bill screen only).
     in-out property <string> share-filter: "";
@@ -109,6 +164,7 @@ export component AppWindow inherits Window {
     callback add-boarder(string);
     callback rename-boarder(int, string);
     callback archive-boarder(int);
+    callback delete-boarder(int);
     callback add-bill-type(string);
     callback archive-type(int);
     callback open-new-bill();
@@ -128,11 +184,36 @@ export component AppWindow inherits Window {
     callback import-backup();
     callback save-settings();
     callback toggle-archived();
+    callback open-calendar(int);
+    callback calendar-prev-month();
+    callback calendar-next-month();
+    callback calendar-pick(string);
+    callback calendar-today();
+    callback calendar-clear();
+    callback calendar-confirm();
+    callback calendar-time-changed(int, int, bool);
+    callback calendar-pick-month(int);
+    callback calendar-pick-year(int);
+    callback overpay-dismiss();
+    callback overpay-return-change();
+    callback manage-shares();
+    callback manage-edit(int);
+    callback manage-exclude(int);
+    callback manage-add(int);
+    callback open-payment(int);
+    callback return-share-change(int);
+    callback return-change-confirm();
+    callback return-change-pick-date();
+    callback payment-detail-correct-date();
+    callback payment-detail-return();
 
     // ---- Shell state ----
     property <SheetKind> sheet: SheetKind.none;
     property <int> sheet-index: -1;
     property <bool> menu-open: false;
+    property <int> manage-pending: -1;
+    // Set while the calendar is correcting a returned date from the detail sheet.
+    property <bool> detail-correcting: false;
 
     property <bool> is-tab: root.screen == 0 || root.screen == 1 || root.screen == 3;
     property <int> tab-index: root.screen == 1 ? 1 : root.screen == 3 ? 2 : 0;
@@ -165,6 +246,7 @@ export component AppWindow inherits Window {
         root.menu-open = false;
         root.message = "";
         root.message-error = false;
+        root.manage-pending = -1;
         root.sheet-index = index;
         root.sheet = kind;
     }
@@ -196,6 +278,10 @@ export component AppWindow inherits Window {
     // Hardware Back (Android) / Escape (desktop). Returns false at the root of
     // the app so the system can handle it (e.g. leave the app).
     function go-back() -> bool {
+        if root.overpay-shown {
+            root.overpay-shown = false;
+            return true;
+        }
         if root.menu-open {
             root.menu-open = false;
             return true;
@@ -270,6 +356,7 @@ export component AppWindow inherits Window {
                     balances: root.balances;
                     prev-month => { root.prev-month(); }
                     next-month => { root.next-month(); }
+                    pick-period => { root.open-calendar(4); }
                     set-filter(i) => { root.set-filter(i); }
                     open-bill(i) => { root.open-bill(i); }
                     open-boarder(i) => { root.open-boarder(i); }
@@ -324,12 +411,13 @@ export component AppWindow inherits Window {
                     bill-type-label: root.bill-type-names.length > root.bill-type-index ? root.bill-type-names[root.bill-type-index] : "";
                     has-bill-types: root.bill-type-names.length > 0;
                     picks: root.picks;
-                    bill-year <=> root.bill-year;
-                    bill-month <=> root.bill-month;
+                    bill-period-label: root.bill-period-label;
+                    bill-due-label: root.bill-due-label;
                     bill-total <=> root.bill-total;
-                    bill-due <=> root.bill-due;
                     bill-note <=> root.bill-note;
                     pick-type => { root.open-sheet(SheetKind.bill-type, -1); }
+                    pick-period => { root.open-calendar(3); }
+                    pick-due => { root.open-calendar(1); }
                     pick-toggle(i) => { root.pick-toggle(i); }
                     pick-amount(i, value) => { root.pick-amount(i, value); }
                     create-bill => { root.create-bill(); }
@@ -365,13 +453,34 @@ export component AppWindow inherits Window {
                     pay(i) => {
                         root.payment-amount = "";
                         root.payment-date = "";
+                        root.payment-time = "";
+                        root.payment-date-label = "";
                         root.open-sheet(SheetKind.pay, i);
                     }
                     void-payment(i) => {
                         root.void-reason = "";
                         root.open-sheet(SheetKind.void-payment, i);
                     }
-                    return-change(i) => { root.return-change(i); }
+                    return-change(i) => {
+                        root.begin-action();
+                        root.return-change(i);
+                        if !root.message-error { root.open-sheet(SheetKind.return-change, -1); }
+                    }
+                    return-share-change(i) => {
+                        root.begin-action();
+                        root.return-share-change(i);
+                        if !root.message-error { root.open-sheet(SheetKind.return-change, -1); }
+                    }
+                    manage-shares => {
+                        root.begin-action();
+                        root.manage-shares();
+                        if !root.message-error { root.open-sheet(SheetKind.manage-shares, -1); }
+                    }
+                    open-payment(i) => {
+                        root.begin-action();
+                        root.open-payment(i);
+                        if !root.message-error { root.open-sheet(SheetKind.payment-detail, -1); }
+                    }
                     archive-bill => { root.archive-bill(); }
                 }
 
@@ -389,6 +498,11 @@ export component AppWindow inherits Window {
                     shares: root.shares;
                     payments: root.payments;
                     open-bill(i) => { root.open-bill(i); }
+                    open-payment(i) => {
+                        root.begin-action();
+                        root.open-payment(i);
+                        if !root.message-error { root.open-sheet(SheetKind.payment-detail, -1); }
+                    }
                 }
             }
         }
@@ -485,11 +599,11 @@ export component AppWindow inherits Window {
                     clicked => { root.payment-amount = pay-sheet.share.balance-input; }
                 }
             }
-            TextField {
+            SelectField {
                 label: "Payment date";
+                value: root.payment-date-label;
                 placeholder: "Today";
-                hint: "Leave empty for today, or enter YYYY-MM-DD.";
-                text <=> root.payment-date;
+                clicked => { root.open-calendar(2); }
             }
             AppButton {
                 text: "Record payment";
@@ -733,6 +847,48 @@ export component AppWindow inherits Window {
                         root.archive-boarder(index);
                     }
                 }
+                SheetOption {
+                    text: "Delete boarder";
+                    icon: Icons.trash;
+                    tone: Tone.danger;
+                    clicked => {
+                        let index = root.sheet-index;
+                        root.close-sheet();
+                        root.open-sheet(SheetKind.delete-boarder, index);
+                    }
+                }
+            }
+        }
+
+        if root.sheet == SheetKind.delete-boarder && root.sheet-index >= 0 && root.sheet-index < root.boarders.length : delete-sheet := Sheet {
+            title: "Delete " + delete-sheet.boarder.name + "?";
+            error: root.sheet-error;
+            clear-error => { root.clear-error(); }
+            bottom-inset: root.bottom-inset;
+            dismiss => { root.close-sheet(); }
+
+            property <BoarderRow> boarder: root.boarders[root.sheet-index];
+
+            Text {
+                text: "This removes the boarder from the list and can't be undone. Boarders with past bills can't be deleted; archive them instead.";
+                font-size: Theme.text-sub;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            AppButton {
+                text: "Delete boarder";
+                icon: Icons.trash;
+                kind: ButtonKind.danger;
+                clicked => {
+                    root.begin-action();
+                    root.delete-boarder(root.sheet-index);
+                    if !root.message-error { root.close-sheet(); }
+                }
+            }
+            AppButton {
+                text: "Keep boarder";
+                kind: ButtonKind.secondary;
+                clicked => { root.close-sheet(); }
             }
         }
 
@@ -762,6 +918,333 @@ export component AppWindow inherits Window {
             }
         }
 
+        // ---- Calendar picker ----
+        if root.sheet == SheetKind.calendar : CalendarSheet {
+            title: root.calendar-title;
+            bottom-inset: root.bottom-inset;
+            days: root.calendar-days;
+            month-names: root.month-names;
+            year: root.calendar-year;
+            month: root.calendar-month;
+            header-label: root.calendar-header-label;
+            month-only: root.calendar-month-only;
+            allow-clear: root.calendar-allow-clear;
+            include-time: root.calendar-include-time;
+            hour: root.calendar-hour;
+            minute: root.calendar-minute;
+            pm: root.calendar-pm;
+            time-label: root.calendar-time-label;
+            dismiss => { root.close-sheet(); }
+            prev-month => { root.calendar-prev-month(); }
+            next-month => { root.calendar-next-month(); }
+            pick(iso) => {
+                root.calendar-pick(iso);
+                if !root.calendar-include-time {
+                    if root.detail-correcting {
+                        root.detail-correcting = false;
+                        root.open-sheet(SheetKind.payment-detail, -1);
+                    } else {
+                        root.close-sheet();
+                    }
+                }
+            }
+            today => {
+                root.calendar-today();
+                if root.calendar-month-only {
+                    root.close-sheet();
+                } else if !root.calendar-include-time {
+                    if root.detail-correcting {
+                        root.detail-correcting = false;
+                        root.open-sheet(SheetKind.payment-detail, -1);
+                    } else {
+                        root.close-sheet();
+                    }
+                }
+            }
+            clear => {
+                root.calendar-clear();
+                root.close-sheet();
+            }
+            confirm => {
+                root.calendar-confirm();
+                root.close-sheet();
+            }
+            time-changed(h, m, pm) => { root.calendar-time-changed(h, m, pm); }
+            pick-month(m) => {
+                root.calendar-pick-month(m);
+                if root.calendar-month-only { root.close-sheet(); }
+            }
+            pick-year(y) => { root.calendar-pick-year(y); }
+        }
+
+        // ---- Manage shares ----
+        if root.sheet == SheetKind.manage-shares : Sheet {
+            title: "Manage shares";
+            subtitle: root.manage-subtitle;
+            error: root.sheet-error;
+            clear-error => { root.clear-error(); }
+            bottom-inset: root.bottom-inset;
+            dismiss => { root.close-sheet(); }
+
+            if root.detail-archived : Banner {
+                text: "This bill is archived. Changes apply immediately and are kept if you restore it.";
+                warning: true;
+                dismissible: false;
+            }
+
+            if root.manage-pending >= 0 && root.manage-pending < root.manage-rows.length : confirm-col := VerticalLayout {
+                property <ManageRow> target: root.manage-rows[root.manage-pending];
+                spacing: Theme.space-3;
+
+                Text {
+                    text: "Exclude " + confirm-col.target.name + " from this bill?";
+                    font-size: Theme.text-headline;
+                    font-weight: Theme.weight-semibold;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "Their " + confirm-col.target.amount + " share is split equally among the remaining "
+                        + (root.manage-rows.length - 1) + " boarders. The bill total stays " + root.detail-total + ".";
+                    font-size: Theme.text-sub;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+                AppButton {
+                    text: "Exclude from this bill";
+                    icon: Icons.ban;
+                    kind: ButtonKind.danger;
+                    clicked => {
+                        root.begin-action();
+                        root.manage-exclude(root.manage-pending);
+                        if !root.message-error { root.close-sheet(); }
+                    }
+                }
+                AppButton {
+                    text: "Keep on bill";
+                    kind: ButtonKind.secondary;
+                    clicked => { root.manage-pending = -1; }
+                }
+            }
+
+            if root.manage-pending < 0 : VerticalLayout {
+                spacing: Theme.space-3;
+
+                ListCard {
+                    for row[i] in root.manage-rows : Rectangle {
+                        height: 64px;
+
+                        if i > 0 : Rectangle {
+                            x: Theme.space-3;
+                            width: parent.width - Theme.space-3;
+                            height: 1px;
+                            background: Theme.divider;
+                        }
+
+                        HorizontalLayout {
+                            padding-left: Theme.space-4;
+                            padding-right: Theme.space-3;
+                            spacing: Theme.space-2;
+
+                            Text {
+                                text: row.name;
+                                horizontal-stretch: 1;
+                                vertical-alignment: center;
+                                font-size: Theme.text-body;
+                                font-weight: Theme.weight-semibold;
+                                color: Theme.text;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: row.amount;
+                                vertical-alignment: center;
+                                font-size: Theme.text-sub;
+                                font-weight: Theme.weight-semibold;
+                                color: Theme.text-muted;
+                            }
+                            AppButton {
+                                text: "Edit";
+                                kind: ButtonKind.ghost;
+                                compact: true;
+                                clicked => {
+                                    root.begin-action();
+                                    root.manage-edit(i);
+                                    if !root.message-error { root.open-sheet(SheetKind.edit-share, root.share-edit-target); }
+                                }
+                            }
+                            AppButton {
+                                text: "Exclude";
+                                kind: ButtonKind.danger-soft;
+                                compact: true;
+                                clicked => { root.manage-pending = i; }
+                            }
+                        }
+                    }
+                }
+
+                if root.manage-candidates.length > 0 : VerticalLayout {
+                    spacing: Theme.space-2;
+                    SectionHeader { title: "Add boarder"; }
+                    ListCard {
+                        for name[j] in root.manage-candidates : SheetOption {
+                            text: name;
+                            icon: Icons.plus;
+                            clicked => {
+                                root.begin-action();
+                                root.manage-add(j);
+                                if !root.message-error { root.close-sheet(); }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: "Excluding a boarder keeps the bill total and splits it equally among the remaining boarders. It only affects this bill.";
+                    font-size: Theme.text-caption;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        // ---- Return change confirmation ----
+        if root.sheet == SheetKind.return-change : Sheet {
+            title: "Return change?";
+            subtitle: root.return-change-subtitle;
+            error: root.sheet-error;
+            clear-error => { root.clear-error(); }
+            bottom-inset: root.bottom-inset;
+            dismiss => { root.close-sheet(); }
+
+            ListCard {
+                DetailRow {
+                    label: "Amount to return";
+                    value: root.return-change-amount;
+                }
+                DetailRow {
+                    label: "Returned on";
+                    value: root.return-change-date-label;
+                    tappable: true;
+                    clicked => {
+                        root.return-change-pick-date();
+                        root.open-sheet(SheetKind.calendar, -1);
+                    }
+                }
+            }
+
+            TextField {
+                label: "Note (optional)";
+                placeholder: "e.g. handed to Maria";
+                text <=> root.return-change-note;
+            }
+
+            AppButton {
+                text: "Confirm returned";
+                icon: Icons.check;
+                clicked => {
+                    root.begin-action();
+                    root.return-change-confirm();
+                    if !root.message-error { root.close-sheet(); }
+                }
+            }
+            AppButton {
+                text: "Cancel";
+                kind: ButtonKind.secondary;
+                clicked => { root.close-sheet(); }
+            }
+        }
+
+        // ---- Payment detail (read only) ----
+        if root.sheet == SheetKind.payment-detail : Sheet {
+            title: "Payment";
+            subtitle: root.pd-subtitle;
+            bottom-inset: root.bottom-inset;
+            dismiss => { root.close-sheet(); }
+
+            if root.pd-voided : Banner {
+                text: "Voided: " + root.pd-void-reason;
+                error: true;
+                dismissible: false;
+            }
+
+            ListCard {
+                DetailRow { label: "Total Bill"; value: root.pd-total; }
+                DetailRow { label: "Amount Received"; value: root.pd-received; }
+                DetailRow { label: "Change Returned"; value: root.pd-change-returned; }
+                DetailRow { label: "Net Payment"; value: root.pd-net; }
+                HorizontalLayout {
+                    height: 44px;
+                    padding-left: Theme.space-2;
+                    padding-right: Theme.space-2;
+                    spacing: Theme.space-2;
+                    Text {
+                        text: "Payment Status";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        font-size: Theme.text-sub;
+                        color: Theme.text-muted;
+                    }
+                    StatusPill {
+                        text: root.pd-payment-status;
+                        tone: Theme.status-tone(root.pd-payment-status);
+                    }
+                }
+                HorizontalLayout {
+                    height: 44px;
+                    padding-left: Theme.space-2;
+                    padding-right: Theme.space-2;
+                    spacing: Theme.space-2;
+                    Text {
+                        text: "Change Status";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        font-size: Theme.text-sub;
+                        color: Theme.text-muted;
+                    }
+                    if root.pd-change-status != "" : StatusPill {
+                        text: root.pd-change-status;
+                        tone: root.pd-change-status == "Change to Return" ? Tone.warning : Tone.success;
+                    }
+                    if root.pd-change-status == "" : Text {
+                        text: "—";
+                        vertical-alignment: center;
+                        font-size: Theme.text-body;
+                        font-weight: Theme.weight-semibold;
+                        color: Theme.text-muted;
+                    }
+                }
+                DetailRow { label: "Recorded"; value: root.pd-recorded; }
+                if root.pd-has-returned : DetailRow {
+                    label: "Returned on";
+                    value: root.pd-returned-on;
+                    tappable: true;
+                    clicked => {
+                        root.payment-detail-correct-date();
+                        root.detail-correcting = true;
+                        root.open-sheet(SheetKind.calendar, -1);
+                    }
+                }
+            }
+
+            if root.pd-can-return : AppButton {
+                text: "Return change";
+                icon: Icons.undo;
+                clicked => {
+                    root.begin-action();
+                    root.payment-detail-return();
+                    if !root.message-error {
+                        root.close-sheet();
+                        root.open-sheet(SheetKind.return-change, -1);
+                    }
+                }
+            }
+            AppButton {
+                text: "Close";
+                kind: ButtonKind.secondary;
+                clicked => { root.close-sheet(); }
+            }
+        }
+
         if root.sheet == SheetKind.restore : Sheet {
             title: "Restore from backup?";
             bottom-inset: root.bottom-inset;
@@ -786,6 +1269,35 @@ export component AppWindow inherits Window {
                 text: "Cancel";
                 kind: ButtonKind.secondary;
                 clicked => { root.close-sheet(); }
+            }
+        }
+
+        // ---- Overpayment notice: above every sheet and the navigation ----
+        if root.overpay-shown : Rectangle {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+
+            OverpaymentDialog {
+                width: 100%;
+                height: 100%;
+                subtitle: root.overpay-subtitle;
+                amount: root.overpay-amount;
+                change: root.overpay-change;
+                due: root.overpay-due;
+                dismiss => {
+                    root.overpay-dismiss();
+                    root.overpay-shown = false;
+                }
+                return-change => {
+                    root.begin-action();
+                    root.overpay-return-change();
+                    if !root.message-error {
+                        root.overpay-shown = false;
+                        root.open-sheet(SheetKind.return-change, -1);
+                    }
+                }
             }
         }
     }

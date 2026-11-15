@@ -14,17 +14,28 @@ See [docs/installation.md](docs/installation.md) for building and installing the
 
 ## Features
 
-- **Boarders** — add, rename, archive, restore; history is preserved.
+- **Boarders** — add, rename, archive, restore, delete; boarders with bill history can
+  only be archived so past bills are preserved.
 - **Bill types** — seeded Water, Electricity, Rent, Wi-Fi, Other; add, rename, archive,
   restore. Old bills keep the name they were created with.
-- **Monthly bills** — calendar-month period, optional due date and note, duplicate
+- **Monthly bills** — calendar-month picker, optional due date and note, duplicate
   warning, archive/unarchive.
+- **Calendar pickers** — every date the treasurer enters (bill period, due date, payment
+  date and time, dashboard month, change-return date) opens a month-grid calendar sheet
+  instead of typed text. The dashboard month is also tappable.
 - **Equal or custom splits** — leftover centavos go to the first boarders in selection
   order; custom shares must add up to the bill total.
-- **Payments** — partial payments, overpayments, editable date/time, live balance and
-  change preview.
-- **Change tracking** — change is tracked per payment and marked returned separately;
-  a settled bill can still have change outstanding.
+- **Share management after creation** — the bill's Manage shares sheet edits, excludes
+  (keeping the bill total and re-splitting it equally among the remaining boarders), or
+  adds a boarder to that one bill.
+- **Payments** — partial payments, date and time picker, editable date/time, live balance
+  and change preview.
+- **Overpayment notice** — a payment that creates change opens a non-dismissing dialog
+  naming the amount received and the excess, with a "Return change now" shortcut.
+- **Change tracking** — explicit Change to Return / Change Returned status on payment and
+  share rows, a chosen return date, and a read-only payment breakdown showing total bill,
+  amount received, change returned, net payment, and both statuses. A settled bill can
+  still have change outstanding.
 - **Corrections** — void a payment with a required reason; history is retained.
 - **Backup** — export all data as JSON through the share sheet; restore replaces all
   local data after confirmation and validation.
@@ -36,6 +47,7 @@ See [docs/installation.md](docs/installation.md) for building and installing the
 ```bash
 cargo run -p treasurer-mobile --bin treasurer   # Preview the UI on the desktop
 cargo test -p treasurer-core                    # Run the core tests
+export PATH="$LOCALAPPDATA/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/windows-x86_64/bin:$PATH"
 (cd apps/mobile && x build --platform android --arch arm64 --format apk)   # Debug APK
 ```
 

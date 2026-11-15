@@ -97,6 +97,20 @@ impl Treasurer {
         Ok(())
     }
 
+    pub fn delete_boarder(&self, id: &str) -> Result<()> {
+        let shares: i64 = self.conn.query_row(
+            "SELECT count(*) FROM bill_shares WHERE boarder_id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
+        if shares > 0 {
+            bail!("This boarder has bill history. Archive them instead to keep past bills intact.");
+        }
+        self.conn
+            .execute("DELETE FROM boarders WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     pub fn set_boarder_archived(&self, id: &str, is_archived: bool) -> Result<()> {
         let now = now_ms();
         self.conn.execute(

@@ -16,6 +16,7 @@ export component LedgerScreen {
     in property <[PaymentRow]> payments;
 
     callback open-bill(int);
+    callback open-payment(int);
 
     Page {
         width: 100%;
@@ -164,6 +165,7 @@ export component LedgerScreen {
                 for payment[i] in root.payments : PaymentItem {
                     show-divider: i > 0;
                     payment: payment;
+                    open-payment => { root.open-payment(i); }
                 }
             }
         }

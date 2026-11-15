@@ -1,7 +1,9 @@
+use chrono::{Datelike, Duration, NaiveDate};
 use treasurer_core::money::{
-    format_date_only, format_money, format_period, format_short_period, is_currency_code,
+    add_months, calendar_weeks, format_date_only, format_money, format_period,
+    format_short_period, is_currency_code, iso_date_to_epoch_noon, local_datetime_ms,
     minor_to_input_value, parse_amount_input, parse_money_to_minor, parse_month_key, shift_period,
-    MAX_AMOUNT_MINOR,
+    split_local_datetime, MAX_AMOUNT_MINOR, MAX_YEAR, MIN_YEAR,
 };
 
 #[test]
@@ -83,4 +85,61 @@ fn knows_the_supported_currencies() {
     assert!(is_currency_code("PHP"));
     assert!(is_currency_code("SAR"));
     assert!(!is_currency_code("XYZ"));
+}
+
+#[test]
+fn calendar_grid_starts_on_sunday_and_covers_the_month() {
+    let days = calendar_weeks(2026, 11);
+    assert_eq!(days.len(), 42);
+    assert_eq!(days[0].0.weekday().num_days_from_sunday(), 0);
+    for pair in days.windows(2) {
+        assert_eq!(pair[1].0 - pair[0].0, Duration::days(1));
+    }
+
+    let in_month: Vec<NaiveDate> = days
+        .iter()
+        .filter(|(_, in_month)| *in_month)
+        .map(|(date, _)| *date)
+        .collect();
+    assert_eq!(in_month.len(), 30);
+    assert_eq!(in_month[0], NaiveDate::from_ymd_opt(2026, 11, 1).unwrap());
+    assert_eq!(in_month[29], NaiveDate::from_ymd_opt(2026, 11, 30).unwrap());
+
+    // February 2027 starts on a Monday: one leading cell from January.
+    let february = calendar_weeks(2027, 2);
+    assert_eq!(february.len(), 42);
+    assert!(!february[0].1);
+    assert!(february[1].1);
+}
+
+#[test]
+fn add_months_clamps_to_the_supported_years() {
+    assert_eq!(add_months(2026, 1, -1), (2025, 12));
+    assert_eq!(add_months(2026, 12, 1), (2027, 1));
+    assert_eq!(add_months(MIN_YEAR, 1, -1), (MIN_YEAR, 1));
+    assert_eq!(add_months(MAX_YEAR, 12, 1), (MAX_YEAR, 12));
+    assert_eq!(add_months(2026, 11, 0), (2026, 11));
+}
+
+#[test]
+fn local_datetime_round_trips_through_the_local_zone() {
+    let date = NaiveDate::from_ymd_opt(2026, 11, 15).unwrap();
+    let epoch = local_datetime_ms(date, 14, 35);
+    let (round_date, hour, minute, pm) = split_local_datetime(epoch);
+    assert_eq!(round_date, date);
+    assert_eq!((hour, minute, pm), (2, 35, true));
+
+    let midnight = split_local_datetime(local_datetime_ms(date, 0, 5));
+    assert_eq!((midnight.1, midnight.2, midnight.3), (12, 5, false));
+    let noon = split_local_datetime(local_datetime_ms(date, 12, 0));
+    assert_eq!((noon.1, noon.2, noon.3), (12, 0, true));
+}
+
+#[test]
+fn iso_dates_convert_to_noon_of_that_day() {
+    let epoch = iso_date_to_epoch_noon("2026-11-15").unwrap();
+    let (date, hour, minute, _) = split_local_datetime(epoch);
+    assert_eq!(date, NaiveDate::from_ymd_opt(2026, 11, 15).unwrap());
+    assert_eq!((hour, minute), (12, 0));
+    assert_eq!(iso_date_to_epoch_noon("not-a-date"), None);
 }

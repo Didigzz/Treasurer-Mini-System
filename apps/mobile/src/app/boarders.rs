@@ -71,61 +71,117 @@ impl App {
         let shares: Vec<ShareRow> = ledger
             .items
             .iter()
-            .map(|item| ShareRow {
-                name: format!(
-                    "{} {}",
-                    item.bill.bill_type_name_snapshot,
-                    money::format_short_period(item.bill.period_year, item.bill.period_month)
-                )
-                .into(),
-                due: money::format_money(item.share.share.total_due_minor(), &self.currency).into(),
-                paid: money::format_money(item.state.paid_minor, &self.currency).into(),
-                balance: money::format_money(item.state.balance_minor, &self.currency).into(),
-                balance_input: money::minor_to_input_value(item.state.balance_minor.max(0)).into(),
-                change: money::format_money(item.state.change_outstanding_minor, &self.currency)
+            .map(|item| {
+                let outstanding = item.state.change_outstanding_minor;
+                let returned = item.state.change_returned_minor;
+                let change_status = if outstanding > 0 {
+                    if returned > 0 {
+                        format!(
+                            "Change Returned {} · {} to return",
+                            money::format_money(returned, &self.currency),
+                            money::format_money(outstanding, &self.currency)
+                        )
+                    } else {
+                        format!(
+                            "Change to Return {}",
+                            money::format_money(outstanding, &self.currency)
+                        )
+                    }
+                } else if returned > 0 {
+                    format!(
+                        "Change Returned {}",
+                        money::format_money(returned, &self.currency)
+                    )
+                } else {
+                    String::new()
+                };
+
+                ShareRow {
+                    name: format!(
+                        "{} {}",
+                        item.bill.bill_type_name_snapshot,
+                        money::format_short_period(item.bill.period_year, item.bill.period_month)
+                    )
                     .into(),
-                charge: money::format_money(
-                    item.share.share.additional_charge_minor,
-                    &self.currency,
-                )
-                .into(),
-                status: item.state.status.label().into(),
-                has_balance: item.state.balance_minor > 0,
-                has_change: item.state.change_outstanding_minor > 0,
-                has_charge: item.share.share.additional_charge_minor > 0,
+                    due: money::format_money(item.share.share.total_due_minor(), &self.currency)
+                        .into(),
+                    paid: money::format_money(item.state.paid_minor, &self.currency).into(),
+                    balance: money::format_money(item.state.balance_minor, &self.currency).into(),
+                    balance_input: money::minor_to_input_value(item.state.balance_minor.max(0))
+                        .into(),
+                    change: money::format_money(outstanding, &self.currency).into(),
+                    change_status: change_status.clone().into(),
+                    charge: money::format_money(
+                        item.share.share.additional_charge_minor,
+                        &self.currency,
+                    )
+                    .into(),
+                    status: item.state.status.label().into(),
+                    has_balance: item.state.balance_minor > 0,
+                    has_change: outstanding > 0,
+                    has_change_status: !change_status.is_empty(),
+                    has_charge: item.share.share.additional_charge_minor > 0,
+                }
             })
             .collect();
         ui.set_shares(ModelRc::new(VecModel::from(shares)));
 
+        let currency = self.currency.clone();
+        let mut payment_ids = Vec::with_capacity(ledger.payments.len());
+        let mut payment_share_ids = Vec::with_capacity(ledger.payments.len());
         let payments: Vec<PaymentRow> = ledger
             .payments
             .iter()
-            .map(|item| PaymentRow {
-                title: format!(
-                    "{} {}",
-                    item.bill_type_name,
-                    money::format_short_period(item.period_year, item.period_month)
-                )
-                .into(),
-                subtitle: format!(
-                    "{}{}",
-                    money::format_datetime(item.payment.payment.paid_at),
-                    if item.payment.payment.voided_at.is_some() {
-                        " · voided"
-                    } else {
-                        ""
-                    }
-                )
-                .into(),
-                amount: money::format_money(item.payment.payment.amount_minor, &self.currency)
+            .map(|item| {
+                let record = &item.payment.payment;
+                let computed = item.payment.computed_change_minor;
+                let change_status = if !record.is_active() || computed <= 0 {
+                    String::new()
+                } else if record.change_returned_at.is_some() {
+                    format!(
+                        "Change Returned {}",
+                        money::format_money(computed, &currency)
+                    )
+                } else {
+                    format!(
+                        "Change to Return {}",
+                        money::format_money(computed, &currency)
+                    )
+                };
+
+                payment_ids.push(record.id.clone());
+                payment_share_ids.push(record.bill_share_id.clone());
+
+                PaymentRow {
+                    title: format!(
+                        "{} {}",
+                        item.bill_type_name,
+                        money::format_short_period(item.period_year, item.period_month)
+                    )
                     .into(),
-                change: money::format_money(item.payment.computed_change_minor, &self.currency)
+                    subtitle: format!(
+                        "{}{}",
+                        money::format_datetime(record.paid_at),
+                        if record.voided_at.is_some() {
+                            " · voided"
+                        } else {
+                            ""
+                        }
+                    )
                     .into(),
-                can_return: false,
-                has_change: item.payment.computed_change_minor > 0,
-                voided: item.payment.payment.voided_at.is_some(),
+                    amount: money::format_money(record.amount_minor, &currency).into(),
+                    change: money::format_money(computed, &currency).into(),
+                    change_status: change_status.into(),
+                    can_return: record.is_active()
+                        && record.change_returned_at.is_none()
+                        && computed > 0,
+                    has_change: computed > 0,
+                    voided: !record.is_active(),
+                }
             })
             .collect();
+        self.payment_ids = payment_ids;
+        self.payment_share_ids = payment_share_ids;
         ui.set_payments(ModelRc::new(VecModel::from(payments)));
     }
 
@@ -175,6 +231,23 @@ impl App {
         }
     }
 
+    pub(super) fn delete_boarder(&mut self, index: usize) {
+        let Some(id) = self.boarder_ids.get(index).cloned() else {
+            return self.message("That boarder is no longer in the list.");
+        };
+        match self.db.delete_boarder(&id) {
+            Ok(()) => {
+                if self.detail_boarder.as_deref() == Some(id.as_str()) {
+                    self.detail_boarder = None;
+                }
+                self.refresh_boarders();
+                self.refresh_dashboard();
+                self.notify("Boarder deleted.");
+            }
+            Err(error) => self.message(format!("{error:#}")),
+        }
+    }
+
     pub(super) fn archive_boarder(&mut self, index: usize) {
         let Some(id) = self.boarder_ids.get(index).cloned() else {
             return;
@@ -217,5 +290,9 @@ pub(super) fn wire(app: &Rc<RefCell<App>>, ui: &AppWindow) {
     {
         let app = app.clone();
         ui.on_archive_boarder(move |index| app.borrow_mut().archive_boarder(index.max(0) as usize));
+    }
+    {
+        let app = app.clone();
+        ui.on_delete_boarder(move |index| app.borrow_mut().delete_boarder(index.max(0) as usize));
     }
 }

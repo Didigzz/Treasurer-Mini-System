@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use anyhow::{bail, Result};
 use rusqlite::params;
 
-use crate::calculations::{unique_boarder_ids, validate_additional_charge};
+use crate::calculations::{
+    equal_split, unique_boarder_ids, validate_additional_charge, SplitOutcome,
+};
 use crate::models::*;
 
 use super::{new_id, now_ms};
@@ -340,6 +342,148 @@ impl Treasurer {
                 params![now, bill_id],
             )?;
         }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Removes one boarder from a bill and re-splits the bill total equally
+    /// among the remaining shares. The bill total never changes.
+    pub fn exclude_share(&self, bill_id: &str, boarder_id: &str) -> Result<()> {
+        let Some(detail) = self.bill_detail(bill_id)? else {
+            bail!("Bill not found.");
+        };
+        if detail.is_locked {
+            bail!("Share amounts are locked because payments have been recorded. Void the payments first to change who is on this bill.");
+        }
+        if detail.shares.len() <= 1 {
+            bail!("A bill needs at least one boarder. Archive the bill instead.");
+        }
+        let Some(target) = detail
+            .shares
+            .iter()
+            .find(|share| share.share.boarder_id == boarder_id)
+        else {
+            bail!("That boarder is not on this bill.");
+        };
+        if target
+            .state
+            .payments
+            .iter()
+            .any(|payment| payment.payment.is_active())
+        {
+            bail!("Void this boarder's payment before excluding them.");
+        }
+
+        let allow_centavos = self.app_settings()?.allow_centavos;
+        let remaining: Vec<SplitBoarder> = detail
+            .shares
+            .iter()
+            .filter(|share| share.share.boarder_id != boarder_id)
+            .map(|share| SplitBoarder {
+                boarder_id: share.share.boarder_id.clone(),
+                name: share.display_name().to_string(),
+                created_at: share.share.created_at,
+            })
+            .collect();
+        let split = match equal_split(detail.bill.total_minor, &remaining, allow_centavos) {
+            SplitOutcome::Ok(success) => success.shares,
+            SplitOutcome::Err(failure) => bail!("{}", failure.error),
+        };
+
+        let now = now_ms();
+        let transaction = self.conn.unchecked_transaction()?;
+        transaction.execute(
+            "DELETE FROM bill_shares WHERE bill_id = ?1 AND boarder_id = ?2",
+            params![bill_id, boarder_id],
+        )?;
+        for share in &split {
+            transaction.execute(
+                "UPDATE bill_shares SET amount_due_minor = ?1
+                 WHERE bill_id = ?2 AND boarder_id = ?3",
+                params![share.amount_minor, bill_id, share.boarder_id],
+            )?;
+        }
+        transaction.execute(
+            "UPDATE bills SET updated_at = ?1 WHERE id = ?2",
+            params![now, bill_id],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Adds an active boarder who is not on the bill yet and re-splits the bill
+    /// total equally across everyone. Existing additional charges are kept.
+    pub fn add_share_to_bill(&self, bill_id: &str, boarder_id: &str) -> Result<()> {
+        let Some(detail) = self.bill_detail(bill_id)? else {
+            bail!("Bill not found.");
+        };
+        if detail.is_locked {
+            bail!("Share amounts are locked because payments have been recorded. Void the payments first to change who is on this bill.");
+        }
+        let Some(boarder) = self.get_boarder(boarder_id)? else {
+            bail!("Boarder not found.");
+        };
+        if boarder.status == BoarderStatus::Archived {
+            bail!("Archived boarders cannot be added to a bill.");
+        }
+        if detail
+            .shares
+            .iter()
+            .any(|share| share.share.boarder_id == boarder_id)
+        {
+            bail!("That boarder is already on this bill.");
+        }
+
+        let allow_centavos = self.app_settings()?.allow_centavos;
+        let mut boarders: Vec<SplitBoarder> = detail
+            .shares
+            .iter()
+            .map(|share| SplitBoarder {
+                boarder_id: share.share.boarder_id.clone(),
+                name: share.display_name().to_string(),
+                created_at: share.share.created_at,
+            })
+            .collect();
+        boarders.push(SplitBoarder {
+            boarder_id: boarder.id.clone(),
+            name: boarder.name.clone(),
+            created_at: boarder.created_at,
+        });
+
+        let split = match equal_split(detail.bill.total_minor, &boarders, allow_centavos) {
+            SplitOutcome::Ok(success) => success.shares,
+            SplitOutcome::Err(failure) => bail!("{}", failure.error),
+        };
+
+        let now = now_ms();
+        let transaction = self.conn.unchecked_transaction()?;
+        for share in &split {
+            if share.boarder_id == boarder_id {
+                transaction.execute(
+                    "INSERT INTO bill_shares (id, bill_id, boarder_id, boarder_name_snapshot,
+                                              amount_due_minor, created_at, additional_charge_minor)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+                    params![
+                        new_id(),
+                        bill_id,
+                        share.boarder_id,
+                        boarder.name,
+                        share.amount_minor,
+                        now
+                    ],
+                )?;
+            } else {
+                transaction.execute(
+                    "UPDATE bill_shares SET amount_due_minor = ?1
+                     WHERE bill_id = ?2 AND boarder_id = ?3",
+                    params![share.amount_minor, bill_id, share.boarder_id],
+                )?;
+            }
+        }
+        transaction.execute(
+            "UPDATE bills SET updated_at = ?1 WHERE id = ?2",
+            params![now, bill_id],
+        )?;
         transaction.commit()?;
         Ok(())
     }

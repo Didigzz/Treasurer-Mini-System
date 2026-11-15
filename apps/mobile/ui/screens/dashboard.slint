@@ -18,6 +18,7 @@ export component DashboardScreen {
 
     callback prev-month();
     callback next-month();
+    callback pick-period();
     callback set-filter(int);
     callback open-bill(int);
     callback open-boarder(int);
@@ -39,15 +40,28 @@ export component DashboardScreen {
                     label: "Previous month";
                     clicked => { root.prev-month(); }
                 }
-                Text {
-                    text: root.period-label;
+                Rectangle {
                     horizontal-stretch: 1;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    font-size: Theme.text-headline;
-                    font-weight: Theme.weight-semibold;
-                    color: Theme.text;
-                    accessible-role: AccessibleRole.text;
+                    height: Theme.touch;
+                    border-radius: Theme.radius-md;
+                    background: period-touch.pressed ? Theme.surface-pressed : transparent;
+                    accessible-role: button;
+                    accessible-label: root.period-label + ", choose month";
+
+                    Text {
+                        width: 100%;
+                        height: 100%;
+                        text: root.period-label;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: Theme.text-headline;
+                        font-weight: Theme.weight-semibold;
+                        color: Theme.text;
+                    }
+
+                    period-touch := TouchArea {
+                        clicked => { root.pick-period(); }
+                    }
                 }
                 IconButton {
                     icon: Icons.chevron-right;

@@ -1,0 +1,7 @@
+android:
+  manifest:
+    package: com.anonymous.mybettertapp
+    version_code: 2
+    version_name: 1.1.0
+    application:
+      label: Boarding House Treasurer

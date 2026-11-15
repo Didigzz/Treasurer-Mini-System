@@ -211,6 +211,31 @@ fn archiving_a_boarder_blocks_new_bills_but_keeps_history() {
 }
 
 #[test]
+fn deleting_a_boarder_without_history_removes_them() {
+    let (db, ana, _ben) = setup();
+    db.delete_boarder(&ana).unwrap();
+
+    assert!(db.get_boarder(&ana).unwrap().is_none());
+    let names: Vec<String> = db
+        .list_boarders_with_balances()
+        .unwrap()
+        .into_iter()
+        .map(|row| row.boarder.name)
+        .collect();
+    assert_eq!(names, vec!["Ben".to_string()]);
+}
+
+#[test]
+fn deleting_a_boarder_with_bill_history_is_refused() {
+    let (db, ana, ben) = setup();
+    create_rent_bill(&db, &ana, &ben);
+
+    let result = db.delete_boarder(&ana);
+    assert!(result.is_err());
+    assert!(db.get_boarder(&ana).unwrap().is_some());
+}
+
+#[test]
 fn backup_export_and_restore_round_trip_everything() {
     let (db, ana, ben) = setup();
     let bill_id = create_rent_bill(&db, &ana, &ben);

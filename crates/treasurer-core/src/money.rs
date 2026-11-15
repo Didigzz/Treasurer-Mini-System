@@ -1,7 +1,9 @@
-use chrono::{Datelike, Local, NaiveDate, TimeZone, Timelike};
+use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone, Timelike};
 
 pub const MINOR_UNITS_PER_UNIT: i64 = 100;
 pub const MAX_AMOUNT_MINOR: i64 = 9_999_999_999;
+pub const MIN_YEAR: i32 = 2000;
+pub const MAX_YEAR: i32 = 2100;
 
 pub const MONTH_NAMES: [&str; 12] = [
     "January",
@@ -347,4 +349,94 @@ pub fn shift_period(year: i32, month: i32, delta: i32) -> (i32, i32) {
     let shifted_year = total.div_euclid(12);
     let shifted_month = total.rem_euclid(12) + 1;
     (shifted_year, shifted_month)
+}
+
+/// Like `shift_period`, but stays inside the selectable year range so the
+/// calendar can never navigate out of the supported bounds.
+pub fn add_months(year: i32, month: i32, delta: i32) -> (i32, i32) {
+    let (mut year, mut month) = shift_period(year, month.clamp(1, 12), delta);
+    if year < MIN_YEAR {
+        year = MIN_YEAR;
+        month = 1;
+    }
+    if year > MAX_YEAR {
+        year = MAX_YEAR;
+        month = 12;
+    }
+    (year, month)
+}
+
+/// 42 cells (six Sunday-first weeks) that fully cover the month, including
+/// leading and trailing days from the adjacent months.
+pub fn calendar_weeks(year: i32, month: i32) -> Vec<(NaiveDate, bool)> {
+    let month = month.clamp(1, 12);
+    let Some(first) = NaiveDate::from_ymd_opt(year, month as u32, 1) else {
+        return Vec::new();
+    };
+    let offset = first.weekday().num_days_from_sunday() as i64;
+    let start = first - Duration::days(offset);
+
+    (0..42)
+        .map(|index| {
+            let date = start + Duration::days(index);
+            (date, date.year() == year && date.month() == month as u32)
+        })
+        .collect()
+}
+
+/// Local wall-clock date and time to epoch millis. Ambiguous or skipped local
+/// times (DST gaps) fall back to the earliest match, then noon, so a payment
+/// never lands outside the chosen day.
+pub fn local_datetime_ms(date: NaiveDate, hour: u32, minute: u32) -> i64 {
+    let hour = hour.min(23);
+    let minute = minute.min(59);
+    if let Some(naive) = date.and_hms_opt(hour, minute, 0) {
+        let resolved = Local.from_local_datetime(&naive);
+        if let Some(datetime) = resolved.single().or_else(|| resolved.earliest()) {
+            return datetime.timestamp_millis();
+        }
+    }
+    if let Some(noon) = date.and_hms_opt(12, 0, 0) {
+        let resolved = Local.from_local_datetime(&noon);
+        if let Some(datetime) = resolved.single().or_else(|| resolved.earliest()) {
+            return datetime.timestamp_millis();
+        }
+        return Local.from_utc_datetime(&noon).timestamp_millis();
+    }
+    date.and_hms_opt(12, 0, 0)
+        .map(|noon| Local.from_utc_datetime(&noon).timestamp_millis())
+        .unwrap_or(0)
+}
+
+/// Splits an epoch into (date, hour 1-12, minute, is_pm) in the local zone.
+pub fn split_local_datetime(epoch_ms: i64) -> (NaiveDate, u32, u32, bool) {
+    let resolved = Local.timestamp_millis_opt(epoch_ms);
+    let datetime = resolved
+        .single()
+        .or_else(|| Local.timestamp_millis_opt(epoch_ms).earliest());
+    match datetime {
+        Some(datetime) => {
+            let hour = datetime.hour();
+            (
+                datetime.date_naive(),
+                if hour % 12 == 0 { 12 } else { hour % 12 },
+                datetime.minute(),
+                hour >= 12,
+            )
+        }
+        None => (
+            NaiveDate::from_ymd_opt(1970, 1, 1).expect("1970-01-01 is a valid date"),
+            12,
+            0,
+            false,
+        ),
+    }
+}
+
+/// Noon local time on an ISO `YYYY-MM-DD` date. Used for date-only facts such
+/// as a bill due date or a change-return date.
+pub fn iso_date_to_epoch_noon(iso: &str) -> Option<i64> {
+    NaiveDate::parse_from_str(iso.trim(), "%Y-%m-%d")
+        .ok()
+        .map(|date| local_datetime_ms(date, 12, 0))
 }

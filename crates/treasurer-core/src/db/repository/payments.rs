@@ -233,4 +233,33 @@ impl Treasurer {
         )?;
         Ok(())
     }
+
+    /// Corrects the date a returned change was handed back. Only affects the
+    /// date; the amount always stays the computed change.
+    pub fn update_change_returned_at(&self, payment_id: &str, returned_at: i64) -> Result<()> {
+        let payments = self.payments_by_share()?;
+        let Some(payment) = payments
+            .values()
+            .flatten()
+            .find(|payment| payment.id == payment_id)
+            .cloned()
+        else {
+            bail!("Payment not found.");
+        };
+        if payment.voided_at.is_some() {
+            bail!("Voided payments cannot return change.");
+        }
+        if payment.change_returned_at.is_none() {
+            bail!("This change has not been marked returned yet.");
+        }
+        if payment.change_minor <= 0 {
+            bail!("There is no change to return for this payment.");
+        }
+
+        self.conn.execute(
+            "UPDATE payments SET change_returned_at = ?1 WHERE id = ?2",
+            params![returned_at, payment_id],
+        )?;
+        Ok(())
+    }
 }

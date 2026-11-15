@@ -1,8 +1,10 @@
 // Shared building blocks. Everything here reads from `Theme` so screens never
 // hard-code colours, radii, or font sizes.
 
+import { ScrollView } from "std-widgets.slint";
 import { Theme, Tone } from "theme.slint";
 import { Icon, Icons } from "icons.slint";
+import { CalendarDay } from "models.slint";
 
 export { Theme, Tone, Icon, Icons }
 
@@ -124,13 +126,16 @@ export component IconButton inherits Rectangle {
     in property <string> label;
     in property <brush> tint: Theme.text;
     in property <bool> filled: false;
+    in property <bool> enabled: true;
     in property <length> icon-size: 22px;
     callback clicked();
 
     width: Theme.touch;
     height: Theme.touch;
     border-radius: self.height / 2;
-    background: touch.pressed ? Theme.surface-pressed : (filled ? Theme.surface-sunken : transparent);
+    background: touch.pressed && root.enabled ? Theme.surface-pressed
+        : (root.filled ? Theme.surface-sunken : transparent);
+    opacity: root.enabled ? 1 : 0.35;
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -144,6 +149,7 @@ export component IconButton inherits Rectangle {
     }
 
     touch := TouchArea {
+        enabled: root.enabled;
         clicked => { root.clicked(); }
     }
 }
@@ -781,5 +787,562 @@ export component SheetOption inherits Rectangle {
 
     touch := TouchArea {
         clicked => { root.clicked(); }
+    }
+}
+
+// Label / value row used by the read-only payment detail sheet.
+export component DetailRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> tappable: false;
+    callback clicked();
+
+    height: 44px;
+    background: row-touch.pressed && root.tappable ? Theme.surface-pressed : transparent;
+    accessible-role: button;
+    accessible-label: root.label + ": " + root.value;
+    accessible-action-default => { if root.tappable { root.clicked(); } }
+
+    HorizontalLayout {
+        padding-left: Theme.space-2;
+        padding-right: Theme.space-2;
+        spacing: Theme.space-2;
+
+        Text {
+            text: root.label;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            font-size: Theme.text-sub;
+            color: Theme.text-muted;
+            overflow: elide;
+        }
+        Text {
+            text: root.value;
+            vertical-alignment: center;
+            font-size: Theme.text-body;
+            font-weight: Theme.weight-semibold;
+            color: Theme.text;
+            overflow: elide;
+        }
+        if root.tappable : Icon {
+            path: Icons.chevron-right;
+            color: Theme.text-faint;
+            size: 16px;
+        }
+    }
+
+    row-touch := TouchArea {
+        enabled: root.tappable;
+        clicked => { root.clicked(); }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Calendar picker
+// ---------------------------------------------------------------------------
+
+export component CalendarCell inherits Rectangle {
+    in property <int> day;
+    in property <bool> in-month: true;
+    in property <bool> selected: false;
+    in property <bool> today: false;
+    in property <bool> enabled: true;
+    callback picked();
+
+    height: 44px;
+    border-radius: Theme.radius-sm;
+    background: root.selected ? Theme.accent
+        : (touch.pressed && root.enabled ? Theme.surface-pressed : transparent);
+    border-width: root.today && !root.selected ? 1px : 0px;
+    border-color: Theme.accent;
+    opacity: root.enabled ? 1 : 0.35;
+    accessible-role: button;
+    accessible-label: "" + root.day + (root.selected ? ", selected" : "") + (root.today ? ", today" : "");
+
+    Text {
+        text: "" + root.day;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: Theme.text-body;
+        font-weight: root.selected ? Theme.weight-semibold : Theme.weight-regular;
+        color: root.selected ? Theme.on-accent
+            : root.today ? Theme.accent
+            : root.in-month ? Theme.text
+            : Theme.text-faint;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.picked(); }
+    }
+}
+
+component PickerChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected: false;
+    in property <bool> enabled: true;
+    in property <length> cell-height: 44px;
+    callback picked();
+
+    height: root.cell-height;
+    border-radius: Theme.radius-sm;
+    background: root.selected ? Theme.accent
+        : (touch.pressed && root.enabled ? Theme.surface-pressed : Theme.surface-sunken);
+    opacity: root.enabled ? 1 : 0.35;
+    accessible-role: button;
+    accessible-label: root.text;
+
+    Text {
+        text: root.text;
+        width: 100%;
+        height: 100%;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: Theme.text-sub;
+        font-weight: root.selected ? Theme.weight-semibold : Theme.weight-medium;
+        color: root.selected ? Theme.on-accent : Theme.text;
+        overflow: elide;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.picked(); }
+    }
+}
+
+// Month-grid calendar inside the standard bottom sheet. The day model is
+// built in Rust so month math (weekday offsets, month edges) stays tested.
+export component CalendarSheet {
+    in property <string> title;
+    in property <length> bottom-inset;
+    in property <[CalendarDay]> days;
+    in property <[string]> month-names;
+    in property <int> year;
+    in property <int> month;
+    in property <string> header-label;
+    in property <bool> month-only: false;
+    in property <bool> allow-clear: false;
+    in property <bool> include-time: false;
+    in property <int> hour: 12;
+    in property <int> minute: 0;
+    in property <bool> pm: false;
+    in property <string> time-label;
+
+    callback dismiss();
+    callback prev-month();
+    callback next-month();
+    callback pick(string);
+    callback today();
+    callback clear();
+    callback confirm();
+    callback time-changed(int, int, bool);
+    callback pick-month(int);
+    callback pick-year(int);
+
+    in-out property <bool> zoom: false;
+    in-out property <bool> time-open: false;
+    in-out property <int> year-page-start: 2000 + ((root.year - 2000) / 12) * 12;
+
+    // Keep the year strip on the page of the shown year (month-only mode
+    // steps years with the header chevrons).
+    changed year => {
+        if root.month-only {
+            self.year-page-start = 2000 + ((root.year - 2000) / 12) * 12;
+        }
+    }
+
+    Sheet {
+        title: root.title;
+        bottom-inset: root.bottom-inset;
+        dismiss => { root.dismiss(); }
+
+        HorizontalLayout {
+            spacing: Theme.space-1;
+
+            IconButton {
+                icon: Icons.chevron-left;
+                label: root.month-only ? "Previous year" : "Previous month";
+                enabled: root.month-only
+                    ? root.year > 2000
+                    : !(root.year == 2000 && root.month == 1);
+                clicked => { root.prev-month(); }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                height: Theme.touch;
+                border-radius: Theme.radius-md;
+                background: header-touch.pressed && !root.month-only ? Theme.surface-pressed : transparent;
+                accessible-role: button;
+                accessible-label: root.header-label + (root.month-only ? "" : ", change month and year");
+
+                Text {
+                    text: root.header-label;
+                    width: 100%;
+                    height: 100%;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: Theme.text-headline;
+                    font-weight: Theme.weight-semibold;
+                    color: Theme.text;
+                }
+
+                header-touch := TouchArea {
+                    enabled: !root.month-only;
+                    clicked => {
+                        root.zoom = !root.zoom;
+                        if root.zoom {
+                            root.year-page-start = 2000 + ((root.year - 2000) / 12) * 12;
+                        }
+                    }
+                }
+            }
+
+            IconButton {
+                icon: Icons.chevron-right;
+                label: root.month-only ? "Next year" : "Next month";
+                enabled: root.month-only
+                    ? root.year < 2100
+                    : !(root.year == 2100 && root.month == 12);
+                clicked => { root.next-month(); }
+            }
+        }
+
+        if !root.month-only && !root.zoom : VerticalLayout {
+            spacing: 0px;
+
+            HorizontalLayout {
+                for name in ["S", "M", "T", "W", "T", "F", "S"] : Text {
+                    horizontal-stretch: 1;
+                    height: 28px;
+                    text: name;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: Theme.text-caption;
+                    font-weight: Theme.weight-semibold;
+                    color: Theme.text-muted;
+                }
+            }
+
+            if root.days.length >= 42 : VerticalLayout {
+                spacing: 0px;
+                for row in 6 : HorizontalLayout {
+                    spacing: 0px;
+                    for col in 7 : CalendarCell {
+                        horizontal-stretch: 1;
+                        day: root.days[row * 7 + col].day;
+                        in-month: root.days[row * 7 + col].in-month;
+                        selected: root.days[row * 7 + col].selected;
+                        today: root.days[row * 7 + col].today;
+                        enabled: root.days[row * 7 + col].enabled;
+                        picked => { root.pick(root.days[row * 7 + col].iso); }
+                    }
+                }
+            }
+        }
+
+        if root.month-only || root.zoom : ScrollView {
+            height: 320px;
+            VerticalLayout {
+                spacing: Theme.space-2;
+
+                HorizontalLayout {
+                    spacing: Theme.space-1;
+                    IconButton {
+                        icon: Icons.chevron-left;
+                        label: "Previous years";
+                        enabled: root.year-page-start > 2000;
+                        clicked => { root.year-page-start = max(2000, root.year-page-start - 12); }
+                    }
+                    Text {
+                        text: "" + root.year-page-start + "–" + (root.year-page-start + 11);
+                        horizontal-stretch: 1;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: Theme.text-sub;
+                        font-weight: Theme.weight-semibold;
+                        color: Theme.text-muted;
+                    }
+                    IconButton {
+                        icon: Icons.chevron-right;
+                        label: "Next years";
+                        enabled: root.year-page-start < 2100;
+                        clicked => { root.year-page-start = min(2100, root.year-page-start + 12); }
+                    }
+                }
+
+                for row in 3 : HorizontalLayout {
+                    spacing: Theme.space-1;
+                    for col in 4 : PickerChip {
+                        horizontal-stretch: 1;
+                        cell-height: 34px;
+                        text: "" + (root.year-page-start + row * 4 + col);
+                        selected: (root.year-page-start + row * 4 + col) == root.year;
+                        enabled: (root.year-page-start + row * 4 + col) <= 2100;
+                        picked => { root.pick-year(root.year-page-start + row * 4 + col); }
+                    }
+                }
+
+                for row in 4 : HorizontalLayout {
+                    spacing: Theme.space-1;
+                    for col in 3 : PickerChip {
+                        horizontal-stretch: 1;
+                        property <int> month-index: row * 3 + col;
+                        text: root.month-names.length > self.month-index ? root.month-names[self.month-index] : "";
+                        selected: self.month-index + 1 == root.month;
+                        picked => {
+                            root.pick-month(self.month-index + 1);
+                            root.zoom = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.include-time : VerticalLayout {
+            spacing: Theme.space-2;
+
+            Rectangle {
+                height: Theme.field-height;
+                border-radius: Theme.radius-md;
+                background: time-touch.pressed ? Theme.surface-pressed : Theme.surface-sunken;
+                accessible-role: button;
+                accessible-label: "Payment time " + root.time-label;
+
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 10px;
+                    spacing: Theme.space-2;
+                    Text {
+                        text: "Time";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        font-size: Theme.text-body;
+                        color: Theme.text;
+                    }
+                    Text {
+                        text: root.time-label;
+                        vertical-alignment: center;
+                        font-size: Theme.text-body;
+                        font-weight: Theme.weight-semibold;
+                        color: Theme.text;
+                    }
+                    Icon {
+                        path: Icons.clock;
+                        color: Theme.text-muted;
+                        size: 20px;
+                    }
+                }
+
+                time-touch := TouchArea {
+                    clicked => { root.time-open = !root.time-open; }
+                }
+            }
+
+            if root.time-open : VerticalLayout {
+                spacing: Theme.space-2;
+
+                HorizontalLayout {
+                    spacing: Theme.space-2;
+                    Text {
+                        text: "Hour";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        font-size: Theme.text-sub;
+                        color: Theme.text-muted;
+                    }
+                    AppButton {
+                        text: "−";
+                        kind: ButtonKind.secondary;
+                        compact: true;
+                        clicked => { root.time-changed(root.hour == 1 ? 12 : root.hour - 1, root.minute, root.pm); }
+                    }
+                    Text {
+                        text: "" + root.hour;
+                        width: 32px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: Theme.text-body;
+                        font-weight: Theme.weight-semibold;
+                        color: Theme.text;
+                    }
+                    AppButton {
+                        text: "+";
+                        kind: ButtonKind.secondary;
+                        compact: true;
+                        clicked => { root.time-changed(root.hour == 12 ? 1 : root.hour + 1, root.minute, root.pm); }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-2;
+                    Text {
+                        text: "Minute";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        font-size: Theme.text-sub;
+                        color: Theme.text-muted;
+                    }
+                    AppButton {
+                        text: "−";
+                        kind: ButtonKind.secondary;
+                        compact: true;
+                        clicked => {
+                            root.time-changed(root.hour, root.minute == 0 ? 59 : root.minute - 1, root.pm);
+                        }
+                    }
+                    Text {
+                        text: root.minute < 10 ? "0" + root.minute : "" + root.minute;
+                        width: 32px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: Theme.text-body;
+                        font-weight: Theme.weight-semibold;
+                        color: Theme.text;
+                    }
+                    AppButton {
+                        text: "+";
+                        kind: ButtonKind.secondary;
+                        compact: true;
+                        clicked => {
+                            root.time-changed(root.hour, root.minute == 59 ? 0 : root.minute + 1, root.pm);
+                        }
+                    }
+                }
+
+                Segmented {
+                    options: ["AM", "PM"];
+                    selected: root.pm ? 1 : 0;
+                    label: "AM or PM";
+                    select(i) => { root.time-changed(root.hour, root.minute, i == 1); }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-2;
+            if root.allow-clear : AppButton {
+                text: "Clear";
+                kind: ButtonKind.secondary;
+                compact: true;
+                clicked => { root.clear(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            AppButton {
+                text: "Today";
+                kind: ButtonKind.secondary;
+                compact: true;
+                clicked => { root.today(); }
+            }
+            if !root.month-only : AppButton {
+                text: "Done";
+                compact: true;
+                clicked => { root.confirm(); }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Overpayment notice
+// ---------------------------------------------------------------------------
+
+export component OverpaymentDialog inherits Rectangle {
+    in property <string> subtitle;
+    in property <string> amount;
+    in property <string> change;
+    in property <string> due;
+    callback dismiss();
+    callback return-change();
+
+    property <bool> shown: false;
+    init => { self.shown = true; }
+
+    background: Theme.scrim.with-alpha(0.92);
+
+    TouchArea {
+        clicked => { root.dismiss(); }
+    }
+
+    card := Rectangle {
+        width: min(parent.width - 48px, 360px);
+        height: content.preferred-height;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2 + (root.shown ? 0px : 8px);
+        background: Theme.surface;
+        border-radius: Theme.radius-xl;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 28px;
+        drop-shadow-offset-y: 10px;
+        drop-shadow-color: #00000059;
+        opacity: root.shown ? 1 : 0;
+        accessible-role: groupbox;
+        accessible-label: "Overpayment Received!";
+
+        animate y, opacity { duration: Theme.medium; easing: ease-out; }
+
+        // Swallow taps so the card itself never dismisses.
+        TouchArea { }
+
+        content := VerticalLayout {
+            padding: Theme.space-5;
+            spacing: Theme.space-3;
+
+            HorizontalLayout {
+                spacing: Theme.space-2;
+                Rectangle {
+                    width: 44px;
+                    height: 44px;
+                    border-radius: 22px;
+                    background: Theme.warning-soft;
+                    Icon {
+                        path: Icons.alert;
+                        color: Theme.warning;
+                        size: 22px;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                IconButton {
+                    icon: Icons.close;
+                    label: "Dismiss";
+                    icon-size: 18px;
+                    clicked => { root.dismiss(); }
+                }
+            }
+
+            Text {
+                text: "Overpayment Received!";
+                font-size: Theme.text-title-lg;
+                font-weight: Theme.weight-bold;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+            Text {
+                text: root.subtitle;
+                font-size: Theme.text-sub;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            Text {
+                text: "The tenant paid " + root.amount + ", which is " + root.change + " more than the required bill of " + root.due + ".";
+                font-size: Theme.text-body;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+
+            AppButton {
+                horizontal-stretch: 1;
+                text: "Return change now";
+                icon: Icons.undo;
+                clicked => { root.return-change(); }
+            }
+            AppButton {
+                horizontal-stretch: 1;
+                text: "Later";
+                kind: ButtonKind.secondary;
+                clicked => { root.dismiss(); }
+            }
+        }
     }
 }
