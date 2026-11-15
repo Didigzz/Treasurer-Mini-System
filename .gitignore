@@ -2,9 +2,29 @@
 target
 dist
 build
+.turbo
+node_modules
+.expo
+coverage
+*.tsbuildinfo
+*.exe
+*.js.map
+apps/native/android
+apps/desktop/src-tauri/gen/schemas
+apps/desktop/src-tauri/binaries/native_modules
+
+# Generated type files
+expo-env.d.ts
+uniwind-types.d.ts
 
 # Android (generated; this project never uses Gradle)
 /android
+
+# Local data
+local.db
+local.db-*
+*.sqlite
+*.sqlite3
 
 # Environment variables
 .env
