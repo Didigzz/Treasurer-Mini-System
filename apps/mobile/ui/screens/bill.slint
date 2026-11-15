@@ -101,6 +101,7 @@ export component BillScreen {
     callback void-payment(int);
     callback return-change(int);
     callback archive-bill();
+    callback delete-bill();
     callback set-share-filter(string);
     callback set-share-filter-mode(int);
     callback edit-share(int);
@@ -361,6 +362,20 @@ export component BillScreen {
                 text: root.detail-archived
                     ? "Restoring shows this bill on the dashboard again."
                     : "Archiving hides this bill from the dashboard totals. You can restore it later.";
+                horizontal-alignment: center;
+                font-size: Theme.text-caption;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+
+            AppButton {
+                text: "Delete bill";
+                icon: Icons.trash;
+                kind: ButtonKind.danger-soft;
+                clicked => { root.delete-bill(); }
+            }
+            Text {
+                text: "Deleting removes this bill, every boarder share on it, and all its payments. This can't be undone.";
                 horizontal-alignment: center;
                 font-size: Theme.text-caption;
                 color: Theme.text-muted;

@@ -1178,6 +1178,27 @@ impl App {
         self.open_edit_share(display_index);
     }
 
+    /// Permanently deletes the open bill along with its shares and payments.
+    pub(super) fn delete_bill(&mut self) {
+        let Some(id) = self.detail_bill.clone() else {
+            return self.message("Open a bill first.");
+        };
+        match self.db.delete_bill(&id) {
+            Ok(()) => {
+                self.detail_bill = None;
+                self.clear_detail_lists();
+                // Return to where the bill was opened from (ledger or tab).
+                self.back();
+                self.refresh_dashboard();
+                self.refresh_history();
+                self.refresh_boarders();
+                // After back(), whose screen change clears the banner.
+                self.notify("Bill deleted.");
+            }
+            Err(error) => self.message(format!("{error:#}")),
+        }
+    }
+
     pub(super) fn archive_bill(&mut self) {
         let Some(id) = self.detail_bill.clone() else {
             return;
@@ -1246,6 +1267,10 @@ pub(super) fn wire(app: &Rc<RefCell<App>>, ui: &AppWindow) {
     {
         let app = app.clone();
         ui.on_archive_bill(move || app.borrow_mut().archive_bill());
+    }
+    {
+        let app = app.clone();
+        ui.on_delete_bill(move || app.borrow_mut().delete_bill());
     }
     {
         let app = app.clone();

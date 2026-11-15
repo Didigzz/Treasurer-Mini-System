@@ -192,6 +192,28 @@ fn adding_an_archived_boarder_or_after_a_payment_is_refused() {
 }
 
 #[test]
+fn deleting_a_bill_removes_its_shares_and_payments() {
+    let (db, ids) = setup(&["Maria", "Juan"]);
+    let bill_id = create_bill(&db, &ids, 90_000);
+    let detail = db.bill_detail(&bill_id).unwrap().unwrap();
+    let share_id = detail.shares[0].share.id.clone();
+
+    db.record_payment(&CreatePaymentInput {
+        bill_share_id: share_id.clone(),
+        amount_minor: 30_000,
+        paid_at: 1_760_000_000_000,
+        note: None,
+    })
+    .unwrap();
+
+    db.delete_bill(&bill_id).unwrap();
+
+    assert!(db.bill_detail(&bill_id).unwrap().is_none());
+    assert!(db.share_payment_context(&share_id).unwrap().is_none());
+    assert!(db.delete_bill(&bill_id).is_err());
+}
+
+#[test]
 fn change_return_date_can_be_corrected_but_not_before_it_is_returned() {
     let (db, ids) = setup(&["Ana"]);
     let bill_id = create_bill(&db, &ids, 60_000);

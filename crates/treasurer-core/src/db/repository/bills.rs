@@ -488,6 +488,30 @@ impl Treasurer {
         Ok(())
     }
 
+    /// Permanently deletes a bill together with every share and payment
+    /// recorded against it.
+    pub fn delete_bill(&self, id: &str) -> Result<()> {
+        let exists: i64 = self.conn.query_row(
+            "SELECT count(*) FROM bills WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            bail!("Bill not found.");
+        }
+
+        let transaction = self.conn.unchecked_transaction()?;
+        transaction.execute(
+            "DELETE FROM payments
+             WHERE bill_share_id IN (SELECT id FROM bill_shares WHERE bill_id = ?1)",
+            params![id],
+        )?;
+        transaction.execute("DELETE FROM bill_shares WHERE bill_id = ?1", params![id])?;
+        transaction.execute("DELETE FROM bills WHERE id = ?1", params![id])?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn set_bill_archived(&self, id: &str, is_archived: bool) -> Result<()> {
         let now = now_ms();
         self.conn.execute(

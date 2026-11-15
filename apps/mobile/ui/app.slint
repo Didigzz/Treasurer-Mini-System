@@ -13,7 +13,7 @@ import { LedgerScreen } from "screens/ledger.slint";
 export { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow, CalendarDay, ManageRow } from "models.slint";
 
 // Bottom sheets owned by the window so they cover the navigation too.
-enum SheetKind { none, pay, void-payment, edit-share, currency, bill-type, boarder-actions, rename, delete-boarder, restore, calendar, manage-shares, return-change, payment-detail }
+enum SheetKind { none, pay, void-payment, edit-share, currency, bill-type, boarder-actions, rename, delete-boarder, delete-bill, restore, calendar, manage-shares, return-change, payment-detail }
 
 // Screen ids (set from Rust): 0 Dashboard, 1 Boarders, 3 History, 4 Settings,
 // 10 Bill, 11 Boarder ledger, 12 New bill.
@@ -175,6 +175,7 @@ export component AppWindow inherits Window {
     callback void-payment(int);
     callback return-change(int);
     callback archive-bill();
+    callback delete-bill();
     callback set-share-filter(string);
     callback set-share-filter-mode(int);
     callback edit-share(int);
@@ -482,6 +483,7 @@ export component AppWindow inherits Window {
                         if !root.message-error { root.open-sheet(SheetKind.payment-detail, -1); }
                     }
                     archive-bill => { root.archive-bill(); }
+                    delete-bill => { root.open-sheet(SheetKind.delete-bill, -1); }
                 }
 
                 if root.screen == 11 : LedgerScreen {
@@ -887,6 +889,37 @@ export component AppWindow inherits Window {
             }
             AppButton {
                 text: "Keep boarder";
+                kind: ButtonKind.secondary;
+                clicked => { root.close-sheet(); }
+            }
+        }
+
+        if root.sheet == SheetKind.delete-bill : Sheet {
+            title: "Delete this bill?";
+            subtitle: root.detail-title;
+            error: root.sheet-error;
+            clear-error => { root.clear-error(); }
+            bottom-inset: root.bottom-inset;
+            dismiss => { root.close-sheet(); }
+
+            Text {
+                text: "This permanently deletes the bill, every boarder share on it, and all recorded payments. This can't be undone.";
+                font-size: Theme.text-sub;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            AppButton {
+                text: "Delete bill";
+                icon: Icons.trash;
+                kind: ButtonKind.danger;
+                clicked => {
+                    root.begin-action();
+                    root.delete-bill();
+                    if !root.message-error { root.close-sheet(); }
+                }
+            }
+            AppButton {
+                text: "Keep bill";
                 kind: ButtonKind.secondary;
                 clicked => { root.close-sheet(); }
             }
