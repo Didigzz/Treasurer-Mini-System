@@ -115,14 +115,17 @@ export component LedgerScreen {
                                 spacing: Theme.space-3;
                                 // The name absorbs the slack so the status pill
                                 // holds one right-hand column no matter how long
-                                // the bill's name is.
+                                // the bill's name is, with a 96px floor so it
+                                // can never collapse to a couple of glyphs.
                                 Text {
                                     text: share.name;
                                     horizontal-stretch: 1;
-                                    min-width: 0px;
+                                    min-width: 96px;
                                     font-size: Theme.text-body;
                                     font-weight: Theme.weight-semibold;
                                     color: Theme.text;
+                                    wrap: word-wrap;
+                                    max-lines: 2;
                                     overflow: elide;
                                     vertical-alignment: center;
                                 }

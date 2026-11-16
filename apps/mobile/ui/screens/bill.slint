@@ -1,5 +1,5 @@
 import { Theme, Tone, Icon, Icons, Card, AppButton, ButtonKind, StatusPill, ProgressBar, SectionHeader, EmptyState, TextField, Segmented } from "../components.slint";
-import { Page, Section, ListCard, ListRow, SummaryMetrics } from "../layout.slint";
+import { Page, Section, ListCard, ListRow, SummaryMetrics, Responsive } from "../layout.slint";
 import { ShareRow, PaymentRow } from "../models.slint";
 
 // A payment line, shared by the bill and boarder ledger screens.
@@ -85,6 +85,121 @@ export component PaymentItem inherits ListRow {
                 compact: true;
                 clicked => { root.undo(); }
             }
+        }
+    }
+}
+
+// The name, status and money lines of a share row. `stacked` is set on narrow
+// phones: the name takes the full width (up to two lines) and the status pill
+// moves onto the line under it, beside the balance state.
+component ShareInfo inherits VerticalLayout {
+    in property <ShareRow> share;
+    in property <bool> stacked: false;
+    callback return-change();
+
+    alignment: center;
+    spacing: 3px;
+
+    if !root.stacked : HorizontalLayout {
+        spacing: Theme.space-3;
+        // The name absorbs the slack so the status pill and chevron hold one
+        // right-hand column; the 96px floor keeps it readable.
+        Text {
+            text: root.share.name;
+            horizontal-stretch: 1;
+            min-width: 96px;
+            font-size: Theme.text-body;
+            font-weight: Theme.weight-semibold;
+            color: Theme.text;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        StatusPill {
+            text: root.share.status;
+            tone: Theme.status-tone(root.share.status);
+        }
+        Icon {
+            path: Icons.chevron-right;
+            color: Theme.text-faint;
+            size: 16px;
+        }
+    }
+
+    if root.stacked : VerticalLayout {
+        spacing: 3px;
+        HorizontalLayout {
+            spacing: Theme.space-2;
+            // Word wrap first, elide only after two lines, so a long name is
+            // read in full instead of being squeezed to a couple of glyphs.
+            Text {
+                text: root.share.name;
+                horizontal-stretch: 1;
+                min-width: 0px;
+                font-size: Theme.text-body;
+                font-weight: Theme.weight-semibold;
+                color: Theme.text;
+                wrap: word-wrap;
+                max-lines: 2;
+                overflow: elide;
+            }
+            // Keeps the row's "opens the editor" cue, aligned to the first line.
+            VerticalLayout {
+                alignment: start;
+                Icon {
+                    path: Icons.chevron-right;
+                    color: Theme.text-faint;
+                    size: 16px;
+                }
+            }
+        }
+        // The pill is the status, so it never elides; the balance text does.
+        HorizontalLayout {
+            spacing: Theme.space-2;
+            StatusPill {
+                text: root.share.status;
+                tone: Theme.status-tone(root.share.status);
+            }
+            Text {
+                text: root.share.has-balance ? root.share.balance + " left to pay" : "Fully paid";
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+                font-size: Theme.text-sub;
+                font-weight: Theme.weight-medium;
+                color: root.share.has-balance ? Theme.danger : Theme.success;
+                overflow: elide;
+            }
+        }
+    }
+
+    if !root.stacked : Text {
+        text: root.share.has-balance ? root.share.balance + " left to pay" : "Fully paid";
+        font-size: Theme.text-sub;
+        font-weight: Theme.weight-medium;
+        color: root.share.has-balance ? Theme.danger : Theme.success;
+    }
+    Text {
+        text: root.share.paid + " paid of " + root.share.due;
+        font-size: Theme.text-sub;
+        color: Theme.text-muted;
+        overflow: elide;
+    }
+    if root.share.has-charge : Text {
+        text: "+ " + root.share.charge + " additional charge";
+        font-size: Theme.text-sub;
+        color: Theme.warning;
+        overflow: elide;
+    }
+    if root.share.has-change-status : Rectangle {
+        height: 28px;
+        Text {
+            text: root.share.change-status;
+            font-size: Theme.text-sub;
+            color: root.share.has-change ? Theme.warning : Theme.success;
+            vertical-alignment: center;
+        }
+        change-touch := TouchArea {
+            enabled: root.share.has-change;
+            clicked => { root.return-change(); }
         }
     }
 }
@@ -267,103 +382,65 @@ export component BillScreen {
                         + (share.has-charge ? ", includes " + share.charge + " additional charge" : "")
                         + ", opens share editor";
 
-                    HorizontalLayout {
+                    // Narrow phones stack the info and give Pay the full width, so
+                    // the name is never squeezed by the action column.
+                    VerticalLayout {
                         padding-left: Theme.space-4;
                         padding-right: Theme.space-3;
                         padding-top: Theme.space-3;
                         padding-bottom: Theme.space-3;
                         spacing: Theme.space-3;
 
-                        // Tappable left region: opens the share editor. The Pay
-                        // button keeps its own tap target and is outside it.
-                        Rectangle {
-                            horizontal-stretch: 1;
-                            border-radius: Theme.radius-md;
-                            background: left-touch.pressed ? Theme.surface-pressed : transparent;
-                            accessible-role: button;
-                            accessible-label: share.name + ", " + share.status + ", balance " + share.balance
-                                + (share.has-charge ? ", includes " + share.charge + " additional charge" : "")
-                                + ", opens share editor";
-                            accessible-action-default => { root.edit-share(i); }
+                        HorizontalLayout {
+                            spacing: Theme.space-3;
 
-                            animate background { duration: Theme.fast; }
+                            // Tappable info region: opens the share editor. Pay
+                            // keeps its own tap target outside it.
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                border-radius: Theme.radius-md;
+                                background: left-touch.pressed ? Theme.surface-pressed : transparent;
+                                accessible-role: button;
+                                accessible-label: share.name + ", " + share.status + ", balance " + share.balance
+                                    + (share.has-charge ? ", includes " + share.charge + " additional charge" : "")
+                                    + ", opens share editor";
+                                accessible-action-default => { root.edit-share(i); }
 
-                            VerticalLayout {
-                                alignment: center;
-                                spacing: 3px;
-                                HorizontalLayout {
-                                    spacing: Theme.space-3;
-                                    // The name absorbs the slack so the status pill
-                                    // and chevron hold one right-hand column no
-                                    // matter how long the boarder's name is.
-                                    Text {
-                                        text: share.name;
-                                        horizontal-stretch: 1;
-                                        min-width: 0px;
-                                        font-size: Theme.text-body;
-                                        font-weight: Theme.weight-semibold;
-                                        color: Theme.text;
-                                        overflow: elide;
-                                        vertical-alignment: center;
-                                    }
-                                    StatusPill {
-                                        text: share.status;
-                                        tone: Theme.status-tone(share.status);
-                                    }
-                                    Icon {
-                                        path: Icons.chevron-right;
-                                        color: Theme.text-faint;
-                                        size: 16px;
-                                    }
+                                animate background { duration: Theme.fast; }
+
+                                ShareInfo {
+                                    share: share;
+                                    stacked: Responsive.compact;
+                                    return-change => { root.return-share-change(i); }
                                 }
-                                Text {
-                                    text: share.has-balance ? share.balance + " left to pay" : "Fully paid";
-                                    font-size: Theme.text-sub;
-                                    font-weight: Theme.weight-medium;
-                                    color: share.has-balance ? Theme.danger : Theme.success;
-                                }
-                                Text {
-                                    text: share.paid + " paid of " + share.due;
-                                    font-size: Theme.text-sub;
-                                    color: Theme.text-muted;
-                                    overflow: elide;
-                                }
-                                if share.has-charge : Text {
-                                    text: "+ " + share.charge + " additional charge";
-                                    font-size: Theme.text-sub;
-                                    color: Theme.warning;
-                                    overflow: elide;
-                                }
-                                if share.has-change-status : Rectangle {
-                                    height: 28px;
-                                    Text {
-                                        text: share.change-status;
-                                        font-size: Theme.text-sub;
-                                        color: share.has-change ? Theme.warning : Theme.success;
-                                        vertical-alignment: center;
-                                    }
-                                    change-touch := TouchArea {
-                                        enabled: share.has-change;
-                                        clicked => { root.return-share-change(i); }
-                                    }
+
+                                left-touch := TouchArea {
+                                    clicked => { root.edit-share(i); }
                                 }
                             }
 
-                            left-touch := TouchArea {
-                                clicked => { root.edit-share(i); }
+                            if !Responsive.compact : VerticalLayout {
+                                alignment: center;
+                                AppButton {
+                                    text: "Pay";
+                                    icon: Icons.cash;
+                                    compact: true;
+                                    kind: share.has-balance ? ButtonKind.primary : ButtonKind.secondary;
+                                    describe: "Pay " + share.name + ", "
+                                        + (share.has-balance ? share.balance + " left to pay" : "fully paid");
+                                    clicked => { root.pay(i); }
+                                }
                             }
                         }
 
-                        VerticalLayout {
-                            alignment: center;
-                            spacing: Theme.space-2;
-                            AppButton {
-                                text: "Pay";
-                                icon: Icons.cash;
-                                compact: true;
-                                kind: share.has-balance ? ButtonKind.primary : ButtonKind.secondary;
-                                clicked => { root.pay(i); }
-                            }
+                        if Responsive.compact : AppButton {
+                            text: "Pay";
+                            icon: Icons.cash;
+                            horizontal-stretch: 1;
+                            kind: share.has-balance ? ButtonKind.primary : ButtonKind.secondary;
+                            describe: "Pay " + share.name + ", "
+                                + (share.has-balance ? share.balance + " left to pay" : "fully paid");
+                            clicked => { root.pay(i); }
                         }
                     }
                 }

@@ -1,5 +1,5 @@
 import { Theme, Tone, Icon, Icons, Card, TapCard, AppButton, ButtonKind, IconButton, Segmented, StatusPill, ProgressBar, Avatar, SectionHeader, EmptyState } from "../components.slint";
-import { Page, Section, ListCard, ListRow, SummaryMetrics } from "../layout.slint";
+import { Page, Section, ListCard, ListRow, SummaryMetrics, Responsive } from "../layout.slint";
 import { BillRow, BalanceRow } from "../models.slint";
 
 export component DashboardScreen {
@@ -278,9 +278,14 @@ export component DashboardScreen {
                             spacing: 2px;
                             Text {
                                 text: balance.name;
+                                // 88px floor: the name wraps to a second line
+                                // before it is squeezed to a couple of glyphs.
+                                min-width: 88px;
                                 font-size: Theme.text-body;
                                 font-weight: Theme.weight-semibold;
                                 color: Theme.text;
+                                wrap: word-wrap;
+                                max-lines: 2;
                                 overflow: elide;
                             }
                             Text {
@@ -306,7 +311,9 @@ export component DashboardScreen {
                             }
                         }
 
-                        Icon {
+                        // The chevron is a nicety; the narrowest phones give
+                        // its space to the name instead.
+                        if !Responsive.compact : Icon {
                             path: Icons.chevron-right;
                             color: Theme.text-faint;
                             size: 18px;

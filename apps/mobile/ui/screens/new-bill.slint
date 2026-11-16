@@ -201,10 +201,15 @@ export component NewBillScreen {
                             Text {
                                 text: pick.name;
                                 horizontal-stretch: 1;
+                                // 88px floor: the name wraps to a second line
+                                // before it is squeezed to a couple of glyphs.
+                                min-width: 88px;
                                 vertical-alignment: center;
                                 font-size: Theme.text-body;
                                 font-weight: pick.selected ? Theme.weight-semibold : Theme.weight-regular;
                                 color: Theme.text;
+                                wrap: word-wrap;
+                                max-lines: 2;
                                 overflow: elide;
                             }
                             if pick.selected : TextField {
