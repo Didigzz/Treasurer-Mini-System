@@ -29,6 +29,7 @@ export component HistoryScreen {
 
             for row[i] in root.history : TapCard {
                 label: row.period + ", " + row.bills + ", " + row.applied + " of " + row.expected + " collected"
+                    + ", cash " + row.cash-collected + ", online " + row.online-collected
                     + (row.settled ? ", settled" : ", " + row.outstanding + " outstanding");
                 clicked => { root.open-history(i); }
 
@@ -102,6 +103,28 @@ export component HistoryScreen {
                             font-size: Theme.text-sub;
                             font-weight: Theme.weight-medium;
                             color: Theme.danger;
+                        }
+                    }
+
+                    // How the month's collected money arrived.
+                    HorizontalLayout {
+                        spacing: Theme.space-2;
+                        Text {
+                            text: "Cash " + row.cash-collected;
+                            font-size: Theme.text-sub;
+                            color: Theme.text-muted;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: "·";
+                            font-size: Theme.text-sub;
+                            color: Theme.text-faint;
+                        }
+                        Text {
+                            text: "Online " + row.online-collected;
+                            font-size: Theme.text-sub;
+                            color: Theme.text-muted;
+                            overflow: elide;
                         }
                     }
                 }

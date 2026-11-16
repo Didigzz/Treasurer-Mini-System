@@ -8,15 +8,17 @@ use chrono::{Local, NaiveDate};
 use slint::{ModelRc, SharedString, VecModel};
 
 use treasurer_core::calculations::{
+    collected_for_payment_type, latest_active_payment_type, matches_payment_type_filter,
     resplit_with_pinned, split_with_overrides, validate_additional_charge, SplitOutcome,
 };
 use treasurer_core::db::repository::now_ms;
 use treasurer_core::models::*;
 use treasurer_core::money;
+use treasurer_core::selection::{selected_count, selection_state, toggle_select_all, SelectionState};
 
 use super::calendar::{parse_hhmm, parse_iso_date, TARGET_CHANGE_RETURNED};
 use super::{progress, App};
-use crate::{AppWindow, ManageRow, PaymentRow, PickRow, ShareRow, ShareSplitPreviewRow};
+use crate::{AppWindow, ManageRow, PaymentRow, PickRow, ShareRow, ShareSplitPreviewRow, UndoPickRow};
 
 pub(super) struct Pick {
     pub(super) boarder_id: String,
@@ -38,6 +40,8 @@ pub(super) struct ShareEntry {
     pub(super) change: i64,
     pub(super) change_returned: i64,
     pub(super) status: ShareStatus,
+    /// Type of the newest active payment, shared by the pill and the filter.
+    pub(super) latest_payment_type: Option<PaymentType>,
 }
 
 impl App {
@@ -97,7 +101,14 @@ impl App {
                 amount: pick.amount.clone().into(),
             })
             .collect();
-        self.ui().set_picks(ModelRc::new(VecModel::from(rows)));
+        let flags: Vec<bool> = self.pick_rows.iter().map(|pick| pick.selected).collect();
+        let state = selection_state(&flags);
+        let ui = self.ui();
+        ui.set_picks(ModelRc::new(VecModel::from(rows)));
+        ui.set_picks_selected_count(selected_count(&flags) as i32);
+        ui.set_picks_total_count(flags.len() as i32);
+        ui.set_picks_all_selected(state == SelectionState::All);
+        ui.set_picks_some_selected(state == SelectionState::Some);
     }
 
     pub(super) fn refresh_bill_detail(&mut self) {
@@ -170,8 +181,19 @@ impl App {
                 change: share.state.change_outstanding_minor,
                 change_returned: share.state.change_returned_minor,
                 status: share.state.status,
+                latest_payment_type: latest_active_payment_type(&share.state.payments),
             })
             .collect();
+        self.cash_collected_minor = detail
+            .shares
+            .iter()
+            .map(|share| collected_for_payment_type(&share.state.payments, PaymentType::Cash))
+            .sum();
+        self.online_collected_minor = detail
+            .shares
+            .iter()
+            .map(|share| collected_for_payment_type(&share.state.payments, PaymentType::Online))
+            .sum();
         self.render_shares();
 
         let mut payment_rows: Vec<(i64, PaymentRow, String, String)> = Vec::new();
@@ -183,8 +205,11 @@ impl App {
                 if let Some(note) = &record.note {
                     subtitle.push_str(&format!(" · {note}"));
                 }
-                if let Some(reason) = &record.void_reason {
-                    subtitle.push_str(&format!(" · voided: {reason}"));
+                if !record.is_active() {
+                    match &record.void_reason {
+                        Some(reason) => subtitle.push_str(&format!(" · undone: {reason}")),
+                        None => subtitle.push_str(" · undone"),
+                    }
                 }
                 let change_status = if !record.is_active() || computed <= 0 {
                     String::new()
@@ -213,6 +238,8 @@ impl App {
                         .into(),
                         subtitle: subtitle.into(),
                         amount: money::format_money(record.amount_minor, &self.currency).into(),
+                        payment_type: record.payment_type.label().into(),
+                        status: record.status_label().into(),
                         change: money::format_money(computed, &self.currency).into(),
                         change_status: change_status.into(),
                         can_return,
@@ -272,6 +299,17 @@ impl App {
         if let Some(pick) = self.pick_rows.get_mut(index) {
             pick.amount = amount.to_string();
         }
+    }
+
+    /// Tri-state select all: everything selected clears the selection;
+    /// none or some selects every active boarder. Typed amounts are kept.
+    pub(super) fn select_all_picks(&mut self) {
+        let flags: Vec<bool> = self.pick_rows.iter().map(|pick| pick.selected).collect();
+        let next = toggle_select_all(&flags);
+        for (pick, selected) in self.pick_rows.iter_mut().zip(next) {
+            pick.selected = selected;
+        }
+        self.render_picks();
     }
 
     pub(super) fn create_bill(&mut self) {
@@ -373,12 +411,13 @@ impl App {
         }
     }
 
-    /// Filters `detail_shares` by name and status, then rebuilds the visible
-    /// row model and the parallel ID list used by Pay and Edit.
+    /// Filters `detail_shares` by name, status, and payment type, then rebuilds
+    /// the visible row model and the parallel ID list used by Pay and Edit.
     pub(super) fn render_shares(&mut self) {
         let currency = self.currency.clone();
         let needle = self.share_filter.trim().to_lowercase();
         let mode = self.share_filter_mode;
+        let type_mode = self.share_type_filter;
 
         let visible: Vec<&ShareEntry> = self
             .detail_shares
@@ -389,6 +428,7 @@ impl App {
                 2 => entry.balance == 0,
                 _ => true,
             })
+            .filter(|entry| matches_payment_type_filter(entry.latest_payment_type, type_mode))
             .collect();
 
         let rows: Vec<ShareRow> = visible
@@ -424,7 +464,12 @@ impl App {
                     change: money::format_money(entry.change, &currency).into(),
                     change_status: change_status.clone().into(),
                     charge: money::format_money(entry.charge, &currency).into(),
-                    status: entry.status.label().into(),
+                    status: match (entry.status, entry.latest_payment_type) {
+                        (ShareStatus::Paid, Some(payment_type)) => payment_type.status_label(),
+                        _ => entry.status.label(),
+                    }
+                    .into(),
+                    settled: entry.balance == 0,
                     has_balance: entry.balance > 0,
                     has_change: entry.change > 0,
                     has_change_status: !change_status.is_empty(),
@@ -437,9 +482,25 @@ impl App {
         debug_assert_eq!(self.display_share_ids.len(), rows.len());
 
         let ui = self.ui();
+        // The method totals cover the whole bill, so they never depend on the
+        // visible rows; only the type selection decides which one shows.
+        let (caption, collected) = match type_mode {
+            1 => (
+                "Cash collected",
+                money::format_money(self.cash_collected_minor, &currency),
+            ),
+            2 => (
+                "Online collected",
+                money::format_money(self.online_collected_minor, &currency),
+            ),
+            _ => ("", String::new()),
+        };
+
         ui.set_shares(ModelRc::new(VecModel::from(rows)));
         ui.set_share_total_count(self.detail_shares.len() as i32);
         ui.set_share_visible_count(self.display_share_ids.len() as i32);
+        ui.set_share_type_collected_caption(caption.into());
+        ui.set_share_type_collected(collected.into());
     }
 
     pub(super) fn set_share_filter(&mut self, text: &str) {
@@ -452,6 +513,12 @@ impl App {
         self.share_filter_mode = mode.clamp(0, 2);
         self.ui()
             .set_share_filter_mode(self.share_filter_mode);
+        self.render_shares();
+    }
+
+    pub(super) fn set_share_type_filter(&mut self, mode: i32) {
+        self.share_type_filter = mode.clamp(0, 2);
+        self.ui().set_share_type_filter(self.share_type_filter);
         self.render_shares();
     }
 
@@ -705,6 +772,17 @@ impl App {
             return self.message("Enter a payment amount greater than zero.");
         }
 
+        // Same rule as the domain, applied here so the Pay sheet reports it
+        // inline instead of a banner round trip.
+        if let Some(entry) = self.detail_shares.iter().find(|entry| entry.id == share_id) {
+            if amount_minor < entry.balance {
+                return self.message(format!(
+                    "Record the full remaining balance of {} or more. Partial payments aren't allowed.",
+                    money::format_money(entry.balance, &self.currency)
+                ));
+            }
+        }
+
         // The picker always supplies a date; an empty value would only mean
         // "now" for safety (e.g. after a restore that lost the field).
         let paid_at = match parse_iso_date(&ui.get_payment_date()) {
@@ -715,11 +793,28 @@ impl App {
             None => now_ms(),
         };
 
+        let payment_type = if ui.get_payment_type_index() == 1 {
+            PaymentType::Online
+        } else {
+            PaymentType::Cash
+        };
+        // The "Use full balance" button fills the amount with the outstanding
+        // balance. Only treat the flag as used when that amount is still intact.
+        let used_full_balance = ui.get_payment_used_full_balance()
+            && self
+                .detail_shares
+                .iter()
+                .find(|entry| entry.id == share_id)
+                .map(|entry| entry.balance > 0 && entry.balance == amount_minor)
+                .unwrap_or(false);
+
         match self.db.record_payment(&CreatePaymentInput {
             bill_share_id: share_id.clone(),
             amount_minor,
             paid_at,
             note: None,
+            payment_type,
+            used_full_balance,
         }) {
             // The payment is committed before any dialog appears; a refresh
             // failure can never make a saved payment look failed.
@@ -784,6 +879,38 @@ impl App {
         }
     }
 
+    /// Gates the Pay sheet's Record button and explains the minimum. Slint
+    /// cannot compare formatted money strings, so the check lives here.
+    pub(super) fn payment_amount_edited(&mut self, index: i32, value: &str) {
+        let balance = self
+            .display_share_ids
+            .get(index.max(0) as usize)
+            .and_then(|id| self.detail_shares.iter().find(|entry| &entry.id == id))
+            .map(|entry| entry.balance);
+
+        let (can_record, hint) = match (balance, money::parse_amount_input(value, self.allow_centavos))
+        {
+            (Some(balance), Some(amount)) if amount > 0 => {
+                if amount >= balance {
+                    (true, String::new())
+                } else {
+                    (
+                        false,
+                        format!(
+                            "Record at least {} — partial payments aren't allowed.",
+                            money::format_money(balance, &self.currency)
+                        ),
+                    )
+                }
+            }
+            _ => (false, String::new()),
+        };
+
+        let ui = self.ui();
+        ui.set_payment_can_record(can_record);
+        ui.set_payment_min_hint(hint.into());
+    }
+
     /// Refreshes every list a payment or share change can affect.
     fn refresh_after_change(&mut self) {
         self.refresh_bill_detail();
@@ -796,19 +923,213 @@ impl App {
         self.refresh_open_payment_detail();
     }
 
-    pub(super) fn void_payment(&mut self, index: usize) {
+    fn set_undo_error(&self, text: impl Into<SharedString>) {
+        self.ui().set_undo_error(text.into());
+    }
+
+    /// Share-row Undo, offered when the share is Paid. One active payment opens
+    /// the confirmation dialog; several open the payment picker.
+    pub(super) fn open_undo_share(&mut self, index: usize) {
+        let Some(share_id) = self.display_share_ids.get(index).cloned() else {
+            return self.message("That share is no longer available. Go back and reopen the bill.");
+        };
+        let context = match self.db.share_payment_context(&share_id) {
+            Ok(Some(context)) => context,
+            Ok(None) => {
+                return self.message("That share is no longer available. Go back and reopen the bill.")
+            }
+            Err(error) => return self.message(format!("{error:#}")),
+        };
+
+        let mut active: Vec<&PaymentWithComputedChange> = context
+            .share
+            .state
+            .payments
+            .iter()
+            .filter(|item| item.payment.is_active())
+            .collect();
+        if active.is_empty() {
+            return self.message("There is no payment to undo for this share.");
+        }
+        active.sort_by(|a, b| {
+            b.payment
+                .paid_at
+                .cmp(&a.payment.paid_at)
+                .then(b.payment.created_at.cmp(&a.payment.created_at))
+                .then(b.payment.id.cmp(&a.payment.id))
+        });
+
+        if active.len() == 1 {
+            let payment_id = active[0].payment.id.clone();
+            return self.prepare_undo(&payment_id, &share_id);
+        }
+
+        self.undo_picker_ids = active
+            .iter()
+            .map(|item| item.payment.id.clone())
+            .collect();
+        self.undo_share_id = Some(share_id);
+        let rows: Vec<UndoPickRow> = active
+            .iter()
+            .enumerate()
+            .map(|(position, item)| UndoPickRow {
+                title: money::format_datetime(item.payment.paid_at).into(),
+                subtitle: item.payment.payment_type.label().into(),
+                amount: money::format_money(item.payment.amount_minor, &self.currency).into(),
+                newest: position == 0,
+            })
+            .collect();
+
+        let ui = self.ui();
+        ui.set_undo_payments(ModelRc::new(VecModel::from(rows)));
+        ui.set_undo_picker_subtitle(
+            format!(
+                "Choose the payment to reverse for {}.",
+                context.share.display_name()
+            )
+            .into(),
+        );
+    }
+
+    pub(super) fn undo_pick(&mut self, index: usize) {
+        let Some(payment_id) = self.undo_picker_ids.get(index).cloned() else {
+            return self.message("That payment is no longer available.");
+        };
+        let Some(share_id) = self.undo_share_id.clone() else {
+            return self.message("That payment is no longer available.");
+        };
+        self.prepare_undo(&payment_id, &share_id);
+    }
+
+    /// Payment-row Undo from the bill or the boarder ledger.
+    pub(super) fn open_undo_payment(&mut self, index: usize) {
         let Some(payment_id) = self.payment_ids.get(index).cloned() else {
             return self.message("That payment is no longer available. Go back and reopen the bill.");
         };
-        let reason = self.ui().get_void_reason().to_string();
-        match self.db.void_payment(&payment_id, &reason) {
-            Ok(()) => {
-                self.refresh_bill_detail();
-                self.refresh_dashboard();
-                self.notify("Payment voided.");
-            }
-            Err(error) => self.message(format!("{error:#}")),
+        let Some(share_id) = self.payment_share_ids.get(index).cloned() else {
+            return self.message("That payment is no longer available. Go back and reopen the bill.");
+        };
+        self.prepare_undo(&payment_id, &share_id);
+    }
+
+    pub(super) fn open_undo_detail(&mut self) {
+        let (Some(payment_id), Some(share_id)) = (
+            self.detail_payment_id.clone(),
+            self.detail_payment_share_id.clone(),
+        ) else {
+            return self.message("That payment is no longer available.");
+        };
+        self.prepare_undo(&payment_id, &share_id);
+    }
+
+    /// Validates the undo guards and fills the centered confirmation dialog.
+    /// Nothing is written until `undo_confirm`.
+    fn prepare_undo(&mut self, payment_id: &str, share_id: &str) {
+        let context = match self.db.share_payment_context(share_id) {
+            Ok(Some(context)) => context,
+            Ok(None) => return self.message("That payment is no longer available."),
+            Err(error) => return self.message(format!("{error:#}")),
+        };
+        let Some(item) = context
+            .share
+            .state
+            .payments
+            .iter()
+            .find(|item| item.payment.id == payment_id)
+        else {
+            return self.message("That payment is no longer available. Go back and reopen the bill.");
+        };
+        let record = &item.payment;
+        if !record.is_active() {
+            return self.message("This payment was already undone.");
         }
+        if record.change_returned_at.is_some() {
+            return self
+                .message("This payment can't be undone because its change was already returned.");
+        }
+        if context.bill.archived_at.is_some() {
+            return self.message("Restore this bill before undoing a payment.");
+        }
+
+        let other_active = context
+            .share
+            .state
+            .payments
+            .iter()
+            .filter(|item| item.payment.is_active() && item.payment.id != payment_id)
+            .count();
+        let computed_change = item.computed_change_minor;
+
+        self.undo_payment_id = Some(payment_id.to_string());
+        self.undo_share_id = Some(share_id.to_string());
+
+        let ui = self.ui();
+        ui.set_undo_context(
+            format!(
+                "{} · {} {}",
+                context.share.display_name(),
+                context.bill.bill_type_name_snapshot,
+                money::format_period(context.bill.period_year, context.bill.period_month)
+            )
+            .into(),
+        );
+        ui.set_undo_payment_label(
+            format!(
+                "{} · {}",
+                money::format_money(record.amount_minor, &self.currency),
+                money::format_datetime(record.paid_at)
+            )
+            .into(),
+        );
+        ui.set_undo_remaining(
+            if other_active > 0 {
+                "Other payments remain on this share, so the status will be recalculated."
+            } else {
+                ""
+            }
+            .into(),
+        );
+        ui.set_undo_warning(
+            if computed_change > 0 {
+                format!(
+                    "This payment has {} of change to return. Undoing it clears that change obligation.",
+                    money::format_money(computed_change, &self.currency)
+                )
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        ui.set_undo_error("".into());
+        ui.set_undo_shown(true);
+    }
+
+    pub(super) fn undo_confirm(&mut self) {
+        let Some(payment_id) = self.undo_payment_id.clone() else {
+            return self.set_undo_error("That payment is no longer available.");
+        };
+        self.ui().set_undo_error("".into());
+
+        match self.db.undo_payment(&payment_id) {
+            Ok(()) => {
+                self.undo_payment_id = None;
+                self.undo_share_id = None;
+                self.undo_picker_ids.clear();
+                let ui = self.ui();
+                ui.set_undo_shown(false);
+                ui.set_undo_payments(slint::ModelRc::default());
+                self.refresh_after_change();
+                self.notify("Payment undone.");
+            }
+            Err(error) => self.set_undo_error(format!("{error:#}")),
+        }
+    }
+
+    pub(super) fn undo_cancel(&mut self) {
+        self.undo_payment_id = None;
+        self.undo_share_id = None;
+        self.undo_picker_ids.clear();
+        self.ui().set_undo_error("".into());
     }
 
     /// Opens the return-change confirmation for one payment row.
@@ -873,7 +1194,7 @@ impl App {
             return self.message("That payment is no longer available.");
         };
         if !payment.payment.is_active() {
-            return self.message("Voided payments cannot return change.");
+            return self.message("Undone payments cannot return change.");
         }
         if payment.payment.change_returned_at.is_some() {
             return self.message("This change was already marked returned.");
@@ -976,6 +1297,13 @@ impl App {
         let currency = self.currency.clone();
         let due = context.share.share.total_due_minor();
         let net = (record.amount_minor - computed).max(0);
+        let tenant_name = context.share.display_name().to_string();
+        let bill_reference = format!(
+            "{} · {}",
+            context.bill.bill_type_name_snapshot,
+            money::format_period(context.bill.period_year, context.bill.period_month)
+        );
+        let has_balance_used = record.used_full_balance && record.is_active();
 
         self.detail_payment_id = Some(payment_id.to_string());
         self.detail_payment_share_id = Some(share_id.to_string());
@@ -1011,9 +1339,14 @@ impl App {
         );
         ui.set_pd_total(money::format_money(due, &currency).into());
         ui.set_pd_received(money::format_money(record.amount_minor, &currency).into());
+        ui.set_pd_tenant(tenant_name.into());
+        ui.set_pd_bill_ref(bill_reference.into());
+        ui.set_pd_payment_type(record.payment_type.label().into());
+        ui.set_pd_balance_used(money::format_money(net, &currency).into());
+        ui.set_pd_has_balance_used(has_balance_used);
         ui.set_pd_change_returned(change_returned.into());
         ui.set_pd_net(money::format_money(net, &currency).into());
-        ui.set_pd_payment_status(context.share.state.status.label().into());
+        ui.set_pd_payment_status(record.status_label().into());
         ui.set_pd_change_status(change_status.into());
         ui.set_pd_recorded(money::format_datetime(record.paid_at).into());
         ui.set_pd_returned_on(
@@ -1022,10 +1355,18 @@ impl App {
                 .unwrap_or_default()
                 .into(),
         );
-        ui.set_pd_voided(!record.is_active());
-        ui.set_pd_void_reason(record.void_reason.clone().unwrap_or_default().into());
+        ui.set_pd_undone(!record.is_active());
+        ui.set_pd_undone_reason(record.void_reason.clone().unwrap_or_default().into());
+        ui.set_pd_undone_on(
+            record
+                .voided_at
+                .map(money::format_datetime)
+                .unwrap_or_default()
+                .into(),
+        );
         ui.set_pd_has_returned(returned.is_some());
         ui.set_pd_can_return(record.is_active() && returned.is_none() && computed > 0);
+        ui.set_pd_can_undo(record.is_active() && context.bill.archived_at.is_none());
     }
 
     fn refresh_open_payment_detail(&mut self) {
@@ -1158,13 +1499,15 @@ impl App {
             return self.message("That share is no longer available.");
         };
         // Editing is reached from the unfiltered manage list, so clear the
-        // share filter before resolving the visible row index.
+        // share filters before resolving the visible row index.
         self.share_filter.clear();
         self.share_filter_mode = 0;
+        self.share_type_filter = 0;
         {
             let ui = self.ui();
             ui.set_share_filter("".into());
             ui.set_share_filter_mode(0);
+            ui.set_share_type_filter(0);
         }
         self.render_shares();
 
@@ -1258,7 +1601,35 @@ pub(super) fn wire(app: &Rc<RefCell<App>>, ui: &AppWindow) {
     }
     {
         let app = app.clone();
-        ui.on_void_payment(move |index| app.borrow_mut().void_payment(index.max(0) as usize));
+        ui.on_select_all_picks(move || app.borrow_mut().select_all_picks());
+    }
+    {
+        let app = app.clone();
+        ui.on_undo_payment(move |index| {
+            app.borrow_mut().open_undo_payment(index.max(0) as usize)
+        });
+    }
+    {
+        let app = app.clone();
+        ui.on_undo_share_payment(move |index| {
+            app.borrow_mut().open_undo_share(index.max(0) as usize)
+        });
+    }
+    {
+        let app = app.clone();
+        ui.on_undo_detail_payment(move || app.borrow_mut().open_undo_detail());
+    }
+    {
+        let app = app.clone();
+        ui.on_undo_pick(move |index| app.borrow_mut().undo_pick(index.max(0) as usize));
+    }
+    {
+        let app = app.clone();
+        ui.on_undo_confirm(move || app.borrow_mut().undo_confirm());
+    }
+    {
+        let app = app.clone();
+        ui.on_undo_cancel(move || app.borrow_mut().undo_cancel());
     }
     {
         let app = app.clone();
@@ -1280,6 +1651,19 @@ pub(super) fn wire(app: &Rc<RefCell<App>>, ui: &AppWindow) {
         let app = app.clone();
         ui.on_set_share_filter_mode(move |mode| {
             app.borrow_mut().set_share_filter_mode(mode)
+        });
+    }
+    {
+        let app = app.clone();
+        ui.on_set_share_type_filter(move |mode| {
+            app.borrow_mut().set_share_type_filter(mode)
+        });
+    }
+    {
+        let app = app.clone();
+        ui.on_payment_amount_edited(move |index, value| {
+            app.borrow_mut()
+                .payment_amount_edited(index, &value)
         });
     }
     {

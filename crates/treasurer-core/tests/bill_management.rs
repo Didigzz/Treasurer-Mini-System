@@ -141,6 +141,8 @@ fn excluding_is_locked_once_payments_exist() {
         amount_minor: 30_000,
         paid_at: 1_760_000_000_000,
         note: None,
+        payment_type: PaymentType::Cash,
+        used_full_balance: false,
     })
     .unwrap();
 
@@ -181,9 +183,11 @@ fn adding_an_archived_boarder_or_after_a_payment_is_refused() {
     let share_id = detail.shares[0].share.id.clone();
     db.record_payment(&CreatePaymentInput {
         bill_share_id: share_id,
-        amount_minor: 1_000,
+        amount_minor: 45_000,
         paid_at: 1_760_000_000_000,
         note: None,
+        payment_type: PaymentType::Cash,
+        used_full_balance: false,
     })
     .unwrap();
 
@@ -200,9 +204,11 @@ fn deleting_a_bill_removes_its_shares_and_payments() {
 
     db.record_payment(&CreatePaymentInput {
         bill_share_id: share_id.clone(),
-        amount_minor: 30_000,
+        amount_minor: 45_000,
         paid_at: 1_760_000_000_000,
         note: None,
+        payment_type: PaymentType::Cash,
+        used_full_balance: false,
     })
     .unwrap();
 
@@ -226,6 +232,8 @@ fn change_return_date_can_be_corrected_but_not_before_it_is_returned() {
             amount_minor: 70_000,
             paid_at: 1_760_000_000_000,
             note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
         })
         .unwrap();
 
@@ -247,6 +255,8 @@ fn change_return_date_can_be_corrected_but_not_before_it_is_returned() {
     assert_eq!(payment.computed_change_minor, 10_000);
     assert_eq!(detail.summary.change_returned_minor, 10_000);
 
-    db.void_payment(&payment_id, "Wrong amount").unwrap();
-    assert!(db.update_change_returned_at(&payment_id, 3_000).is_err());
+    // The change was already returned, so the reversal is blocked and the
+    // payment stays active with its returned date still editable.
+    assert!(db.undo_payment(&payment_id).is_err());
+    db.update_change_returned_at(&payment_id, 3_000).unwrap();
 }

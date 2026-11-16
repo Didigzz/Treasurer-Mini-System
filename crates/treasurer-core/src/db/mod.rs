@@ -73,7 +73,9 @@ CREATE TABLE IF NOT EXISTS payments (
   change_return_note TEXT,
   voided_at INTEGER,
   void_reason TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  payment_type TEXT NOT NULL DEFAULT 'cash',
+  used_full_balance INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS payments_share_idx ON payments (bill_share_id);
 CREATE INDEX IF NOT EXISTS payments_paid_at_idx ON payments (paid_at);
@@ -124,30 +126,46 @@ pub fn initialize(conn: &Connection) -> Result<()> {
 /// additive columns are checked separately on every startup. Safe to repeat
 /// and safe on a database without `bill_shares` yet.
 fn ensure_columns(conn: &Connection) -> Result<()> {
-    if !table_exists(conn, "bill_shares")? {
-        return Ok(());
-    }
-
-    let mut has_charge = false;
-    {
-        let mut statement = conn.prepare("PRAGMA table_info(bill_shares)")?;
-        let mut rows = statement.query([])?;
-        while let Some(row) = rows.next()? {
-            let name: String = row.get(1)?;
-            if name == "additional_charge_minor" {
-                has_charge = true;
-                break;
-            }
-        }
-    }
-
-    if !has_charge {
-        conn.execute(
-            "ALTER TABLE bill_shares ADD COLUMN additional_charge_minor INTEGER NOT NULL DEFAULT 0",
-            [],
+    if table_exists(conn, "bill_shares")? {
+        ensure_column(
+            conn,
+            "bill_shares",
+            "additional_charge_minor",
+            "INTEGER NOT NULL DEFAULT 0",
         )?;
     }
 
+    if table_exists(conn, "payments")? {
+        ensure_column(
+            conn,
+            "payments",
+            "payment_type",
+            "TEXT NOT NULL DEFAULT 'cash'",
+        )?;
+        ensure_column(
+            conn,
+            "payments",
+            "used_full_balance",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+    }
+
+    Ok(())
+}
+
+fn ensure_column(conn: &Connection, table: &str, name: &str, definition: &str) -> Result<()> {
+    let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let existing: String = row.get(1)?;
+        if existing == name {
+            return Ok(());
+        }
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {name} {definition}"),
+        [],
+    )?;
     Ok(())
 }
 

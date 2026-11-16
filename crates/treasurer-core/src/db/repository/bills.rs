@@ -353,7 +353,7 @@ impl Treasurer {
             bail!("Bill not found.");
         };
         if detail.is_locked {
-            bail!("Share amounts are locked because payments have been recorded. Void the payments first to change who is on this bill.");
+            bail!("Share amounts are locked because payments have been recorded. Undo the payments first to change who is on this bill.");
         }
         if detail.shares.len() <= 1 {
             bail!("A bill needs at least one boarder. Archive the bill instead.");
@@ -371,7 +371,7 @@ impl Treasurer {
             .iter()
             .any(|payment| payment.payment.is_active())
         {
-            bail!("Void this boarder's payment before excluding them.");
+            bail!("Undo this boarder's payment before excluding them.");
         }
 
         let allow_centavos = self.app_settings()?.allow_centavos;
@@ -418,7 +418,7 @@ impl Treasurer {
             bail!("Bill not found.");
         };
         if detail.is_locked {
-            bail!("Share amounts are locked because payments have been recorded. Void the payments first to change who is on this bill.");
+            bail!("Share amounts are locked because payments have been recorded. Undo the payments first to change who is on this bill.");
         }
         let Some(boarder) = self.get_boarder(boarder_id)? else {
             bail!("Boarder not found.");

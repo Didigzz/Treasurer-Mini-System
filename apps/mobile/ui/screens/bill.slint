@@ -6,12 +6,14 @@ import { ShareRow, PaymentRow } from "../models.slint";
 export component PaymentItem inherits ListRow {
     in property <PaymentRow> payment;
     in property <bool> actions: false;
+    // Archived bills hide Undo until the bill is restored.
+    in property <bool> allow-undo: true;
     callback return-change();
-    callback void();
+    callback undo();
     callback open-payment();
 
     tappable: true;
-    label: root.payment.title + ", " + root.payment.amount + (root.payment.voided ? ", voided" : ", opens payment detail");
+    label: root.payment.title + ", " + root.payment.amount + ", " + root.payment.payment-type + ", " + root.payment.status + (root.payment.voided ? ", undone" : ", opens payment detail");
     clicked => { root.open-payment(); }
 
     VerticalLayout {
@@ -41,6 +43,14 @@ export component PaymentItem inherits ListRow {
             color: Theme.text-muted;
             wrap: word-wrap;
         }
+        if !root.payment.voided : HorizontalLayout {
+            alignment: start;
+            padding-top: Theme.space-1;
+            StatusPill {
+                text: root.payment.status;
+                tone: Tone.success;
+            }
+        }
         if root.payment.change-status != "" && !root.payment.voided : HorizontalLayout {
             alignment: start;
             StatusPill {
@@ -52,15 +62,15 @@ export component PaymentItem inherits ListRow {
             alignment: start;
             padding-top: Theme.space-1;
             StatusPill {
-                text: "Voided";
+                text: "Undone";
                 tone: Tone.neutral;
             }
         }
-        if root.actions && !root.payment.voided : HorizontalLayout {
+        if root.allow-undo && !root.payment.voided : HorizontalLayout {
             alignment: start;
             spacing: Theme.space-2;
             padding-top: Theme.space-2;
-            if root.payment.can-return : AppButton {
+            if root.actions && root.payment.can-return : AppButton {
                 text: "Return change";
                 icon: Icons.undo;
                 kind: ButtonKind.secondary;
@@ -68,11 +78,12 @@ export component PaymentItem inherits ListRow {
                 clicked => { root.return-change(); }
             }
             AppButton {
-                text: "Void";
-                icon: Icons.ban;
+                text: "Undo payment";
+                describe: "Undo payment for " + root.payment.title + ", " + root.payment.amount;
+                icon: Icons.undo;
                 kind: ButtonKind.danger-soft;
                 compact: true;
-                clicked => { root.void(); }
+                clicked => { root.undo(); }
             }
         }
     }
@@ -94,16 +105,21 @@ export component BillScreen {
 
     in-out property <string> share-filter: "";
     in-out property <int> share-filter-mode: 0;
+    in-out property <int> share-type-filter: 0;
+    in property <string> share-type-collected-caption: "";
+    in property <string> share-type-collected: "";
     in property <int> share-total-count: 0;
     in property <int> share-visible-count: 0;
 
     callback pay(int);
-    callback void-payment(int);
+    callback undo-payment(int);
+    callback undo-share(int);
     callback return-change(int);
     callback archive-bill();
     callback delete-bill();
     callback set-share-filter(string);
     callback set-share-filter-mode(int);
+    callback set-share-type-filter(int);
     callback edit-share(int);
     callback manage-shares();
     callback open-payment(int);
@@ -182,7 +198,7 @@ export component BillScreen {
                 title: "Shares";
                 caption: root.share-total-count == 0
                     ? "Tap a name to edit the split"
-                    : (root.share-filter != "" || root.share-filter-mode != 0)
+                    : (root.share-filter != "" || root.share-filter-mode != 0 || root.share-type-filter != 0)
                         ? root.share-visible-count + " of " + root.share-total-count + " boarders"
                         : root.share-total-count + (root.share-total-count == 1 ? " boarder" : " boarders");
                 action-text: "Manage";
@@ -203,17 +219,43 @@ export component BillScreen {
                     label: "Filter shares by status";
                     select(i) => { root.set-share-filter-mode(i); }
                 }
+                Segmented {
+                    options: ["All", "Cash", "Online"];
+                    selected: root.share-type-filter;
+                    label: "Filter shares by payment type";
+                    select(i) => { root.set-share-type-filter(i); }
+                }
+                if root.share-type-filter != 0 : HorizontalLayout {
+                    padding-top: Theme.space-1;
+                    spacing: Theme.space-2;
+                    Text {
+                        text: root.share-type-collected-caption;
+                        accessible-label: root.share-type-collected-caption + ", " + root.share-type-collected;
+                        horizontal-stretch: 1;
+                        font-size: Theme.text-sub;
+                        font-weight: Theme.weight-medium;
+                        color: Theme.text-muted;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.share-type-collected;
+                        font-size: Theme.text-sub;
+                        font-weight: Theme.weight-semibold;
+                        color: Theme.text;
+                    }
+                }
             }
 
             if root.share-total-count > 0 && root.shares.length == 0 : Card {
                 EmptyState {
                     icon: Icons.people;
                     title: "No boarders match";
-                    body: "Try another name or status.";
+                    body: "Try another name or filter.";
                     action-text: "Clear filter";
                     action => {
                         root.set-share-filter("");
                         root.set-share-filter-mode(0);
+                        root.set-share-type-filter(0);
                     }
                 }
             }
@@ -251,9 +293,14 @@ export component BillScreen {
                                 alignment: center;
                                 spacing: 3px;
                                 HorizontalLayout {
-                                    spacing: Theme.space-2;
+                                    spacing: Theme.space-3;
+                                    // The name absorbs the slack so the status pill
+                                    // and chevron hold one right-hand column no
+                                    // matter how long the boarder's name is.
                                     Text {
                                         text: share.name;
+                                        horizontal-stretch: 1;
+                                        min-width: 0px;
                                         font-size: Theme.text-body;
                                         font-weight: Theme.weight-semibold;
                                         color: Theme.text;
@@ -264,7 +311,6 @@ export component BillScreen {
                                         text: share.status;
                                         tone: Theme.status-tone(share.status);
                                     }
-                                    Rectangle { horizontal-stretch: 1; }
                                     Icon {
                                         path: Icons.chevron-right;
                                         color: Theme.text-faint;
@@ -311,12 +357,21 @@ export component BillScreen {
 
                         VerticalLayout {
                             alignment: center;
+                            spacing: Theme.space-2;
                             AppButton {
                                 text: "Pay";
                                 icon: Icons.cash;
                                 compact: true;
                                 kind: share.has-balance ? ButtonKind.primary : ButtonKind.secondary;
                                 clicked => { root.pay(i); }
+                            }
+                            if share.settled && !root.detail-archived : AppButton {
+                                text: "Undo payment";
+                                describe: "Undo payment for " + share.name + ", " + share.paid + " paid";
+                                icon: Icons.undo;
+                                kind: ButtonKind.danger-soft;
+                                compact: true;
+                                clicked => { root.undo-share(i); }
                             }
                         }
                     }
@@ -342,8 +397,9 @@ export component BillScreen {
                     show-divider: i > 0;
                     payment: payment;
                     actions: true;
+                    allow-undo: !root.detail-archived;
                     return-change => { root.return-change(i); }
-                    void => { root.void-payment(i); }
+                    undo => { root.undo-payment(i); }
                     open-payment => { root.open-payment(i); }
                 }
             }

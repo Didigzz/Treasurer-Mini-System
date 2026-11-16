@@ -81,6 +81,7 @@ fn map_share(row: &Row<'_>) -> rusqlite::Result<BillShare> {
 }
 
 fn map_payment(row: &Row<'_>) -> rusqlite::Result<PaymentRecord> {
+    let payment_type: String = row.get(11)?;
     Ok(PaymentRecord {
         id: row.get(0)?,
         bill_share_id: row.get(1)?,
@@ -93,6 +94,8 @@ fn map_payment(row: &Row<'_>) -> rusqlite::Result<PaymentRecord> {
         voided_at: row.get(8)?,
         void_reason: row.get(9)?,
         created_at: row.get(10)?,
+        payment_type: PaymentType::from_db(&payment_type),
+        used_full_balance: row.get::<_, i64>(12)? != 0,
     })
 }
 

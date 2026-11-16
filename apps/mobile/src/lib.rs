@@ -2,6 +2,8 @@ slint::include_modules!();
 
 pub mod app;
 pub mod platform;
+pub mod update;
+pub mod version;
 
 pub fn run_app() -> anyhow::Result<()> {
     app::run()
@@ -18,8 +20,12 @@ pub fn android_main(android_app: slint::android::AndroidApp) {
     let backups = android_app
         .external_data_path()
         .unwrap_or_else(|| internal.join("backups"));
+    let updates = internal
+        .parent()
+        .map(|parent| parent.join("cache").join("updates"))
+        .unwrap_or_else(|| internal.join("updates"));
 
-    platform::set_android_paths(databases.join("treasurer.db"), backups);
+    platform::set_android_paths(databases.join("treasurer.db"), backups, updates);
     slint::android::init(android_app).expect("failed to initialize Slint on Android");
 
     if let Err(error) = run_app() {

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::models::{
     BillStatus, BillSummary, BoarderPeriodSummary, HistoryBillRef, HistoryFilter, HistoryPeriod,
-    HistoryTotals, PaymentRecord, PaymentWithComputedChange, ShareFilter, ShareState, ShareStatus,
+    HistoryTotals, PaymentRecord, PaymentType, PaymentWithComputedChange, ShareFilter, ShareState, ShareStatus,
     ShareWithState, SplitBoarder, SplitResult,
 };
 use crate::money::{MAX_AMOUNT_MINOR, MINOR_UNITS_PER_UNIT};
@@ -307,7 +307,7 @@ pub fn sort_payments_chronologically(payments: &[PaymentRecord]) -> Vec<PaymentR
 }
 
 /// Assign the overpayment portion to the payment that crosses the amount due.
-/// Voided payments are retained for history but never contribute to totals.
+/// Undone payments are retained for history but never contribute to totals.
 pub fn recompute_payment_changes(
     amount_due_minor: i64,
     payments: &[PaymentRecord],
@@ -499,6 +499,49 @@ pub struct BoarderPeriodSummaryInput<'a> {
     pub state: &'a ShareState,
 }
 
+/// Type of the newest active payment, or None when the share has no active
+/// payments. The order matches the undo picker: paid_at, then created_at, then
+/// id. Undone payments never decide the type.
+pub fn latest_active_payment_type(
+    payments: &[PaymentWithComputedChange],
+) -> Option<PaymentType> {
+    payments
+        .iter()
+        .filter(|item| item.payment.is_active())
+        .max_by(|a, b| {
+            a.payment
+                .paid_at
+                .cmp(&b.payment.paid_at)
+                .then(a.payment.created_at.cmp(&b.payment.created_at))
+                .then(a.payment.id.cmp(&b.payment.id))
+        })
+        .map(|item| item.payment.payment_type)
+}
+
+/// Net money collected through one payment method: active payments only, minus
+/// each payment's computed change, never below zero.
+pub fn collected_for_payment_type(
+    payments: &[PaymentWithComputedChange],
+    payment_type: PaymentType,
+) -> i64 {
+    payments
+        .iter()
+        .filter(|item| item.payment.is_active() && item.payment.payment_type == payment_type)
+        .map(|item| (item.payment.amount_minor - item.computed_change_minor).max(0))
+        .sum()
+}
+
+/// Bill share filter mode: 0 All, 1 Cash, 2 Online. Only a share whose latest
+/// active payment matches the selected method can pass a typed filter.
+pub fn matches_payment_type_filter(latest: Option<PaymentType>, mode: i32) -> bool {
+    let required = match mode {
+        1 => Some(PaymentType::Cash),
+        2 => Some(PaymentType::Online),
+        _ => return true,
+    };
+    latest == required
+}
+
 pub fn matches_share_filter(share: &ShareWithState, filter: ShareFilter) -> bool {
     match filter {
         ShareFilter::All => true,
@@ -535,6 +578,8 @@ pub fn preview_payment(
         voided_at: None,
         void_reason: None,
         created_at: now,
+        payment_type: PaymentType::Cash,
+        used_full_balance: false,
     };
 
     let mut payments = existing_payments.to_vec();

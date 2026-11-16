@@ -6,7 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::calculations::recompute_payment_changes;
-use crate::models::PaymentRecord;
+use crate::models::{PaymentRecord, PaymentType};
 use crate::money::MAX_AMOUNT_MINOR;
 
 pub const MAX_BACKUP_BYTES: usize = 10 * 1024 * 1024;
@@ -86,6 +86,11 @@ pub struct BackupPayment {
     pub voided_at: Option<String>,
     pub void_reason: Option<String>,
     pub created_at: String,
+    /// Missing in backups written before payment types existed; reads as cash.
+    #[serde(default)]
+    pub payment_type: Option<String>,
+    #[serde(default)]
+    pub used_full_balance: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,7 +253,8 @@ pub fn create_backup_payload(conn: &Connection) -> Result<BackupPayload> {
     let payments = {
         let mut statement = conn.prepare(
             "SELECT id, bill_share_id, amount_minor, paid_at, note, change_minor,
-                    change_returned_at, change_return_note, voided_at, void_reason, created_at
+                    change_returned_at, change_return_note, voided_at, void_reason, created_at,
+                    payment_type, used_full_balance
              FROM payments",
         )?;
         let rows = statement
@@ -265,6 +271,8 @@ pub fn create_backup_payload(conn: &Connection) -> Result<BackupPayload> {
                     voided_at: to_iso(row.get(8)?),
                     void_reason: row.get(9)?,
                     created_at: to_iso(Some(row.get(10)?)).unwrap_or_default(),
+                    payment_type: Some(row.get(11)?),
+                    used_full_balance: row.get::<_, i64>(12)? != 0,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -546,6 +554,10 @@ pub fn restore_backup(conn: &Connection, payload: BackupPayload) -> Result<()> {
             voided_at: payment.voided_at.as_deref().map(to_ms).transpose()?,
             void_reason: payment.void_reason.clone(),
             created_at: to_ms(&payment.created_at)?,
+            payment_type: PaymentType::from_db(
+                payment.payment_type.as_deref().unwrap_or("cash"),
+            ),
+            used_full_balance: payment.used_full_balance,
         };
         payments_by_share
             .entry(record.bill_share_id.clone())
@@ -671,8 +683,8 @@ pub fn restore_backup(conn: &Connection, payload: BackupPayload) -> Result<()> {
         transaction.execute(
             "INSERT INTO payments (id, bill_share_id, amount_minor, paid_at, note, change_minor,
                                    change_returned_at, change_return_note, voided_at, void_reason,
-                                   created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                                   created_at, payment_type, used_full_balance)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 payment.id,
                 payment.bill_share_id,
@@ -685,6 +697,8 @@ pub fn restore_backup(conn: &Connection, payload: BackupPayload) -> Result<()> {
                 payment.voided_at.as_deref().map(to_ms).transpose()?,
                 payment.void_reason,
                 to_ms(&payment.created_at)?,
+                PaymentType::from_db(payment.payment_type.as_deref().unwrap_or("cash")).as_str(),
+                payment.used_full_balance as i64,
             ],
         )?;
     }

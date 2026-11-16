@@ -64,6 +64,8 @@ export component AppButton inherits Rectangle {
     in property <ButtonKind> kind: ButtonKind.primary;
     in property <bool> enabled: true;
     in property <bool> compact: false;
+    // Optional fuller accessible name, e.g. "Undo payment for Maria, ₱1,000.00".
+    in property <string> describe: "";
     callback clicked();
 
     property <color> fg: kind == ButtonKind.primary ? Theme.on-accent
@@ -89,7 +91,7 @@ export component AppButton inherits Rectangle {
     background: touch.pressed && enabled ? pressed-bg : base;
     opacity: enabled ? 1 : 0.45;
     accessible-role: button;
-    accessible-label: root.text;
+    accessible-label: root.describe != "" ? root.describe : root.text;
     accessible-action-default => { if root.enabled { root.clicked(); } }
 
     animate background { duration: Theme.fast; }
@@ -1238,6 +1240,140 @@ export component CalendarSheet {
                 text: "Done";
                 compact: true;
                 clicked => { root.confirm(); }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Undo payment confirmation
+// ---------------------------------------------------------------------------
+
+// Centered alert dialog above every sheet and the navigation. Cancel is the
+// safe default; nothing is written until Confirm Undo.
+export component UndoPaymentDialog inherits Rectangle {
+    in property <string> context;
+    in property <string> payment;
+    in property <string> remaining;
+    in property <string> warning;
+    in property <string> error;
+    callback cancel();
+    callback confirm();
+
+    property <bool> shown: false;
+    init => { self.shown = true; }
+
+    background: Theme.scrim.with-alpha(0.92);
+
+    // Tapping the scrim cancels; nothing has been changed yet.
+    TouchArea {
+        clicked => { root.cancel(); }
+    }
+
+    card := Rectangle {
+        width: min(parent.width - 48px, 380px);
+        height: content.preferred-height;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2 + (root.shown ? 0px : 8px);
+        background: Theme.surface;
+        border-radius: Theme.radius-xl;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 28px;
+        drop-shadow-offset-y: 10px;
+        drop-shadow-color: #00000059;
+        opacity: root.shown ? 1 : 0;
+        accessible-role: groupbox;
+        accessible-label: "Undo Payment Confirmation";
+
+        animate y, opacity { duration: Theme.medium; easing: ease-out; }
+
+        // Swallow taps so the card itself never dismisses.
+        TouchArea { }
+
+        content := VerticalLayout {
+            padding: Theme.space-5;
+            spacing: Theme.space-3;
+
+            HorizontalLayout {
+                spacing: Theme.space-2;
+                Rectangle {
+                    width: 44px;
+                    height: 44px;
+                    border-radius: 22px;
+                    background: Theme.danger-soft;
+                    Icon {
+                        path: Icons.undo;
+                        color: Theme.danger;
+                        size: 22px;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+
+            Text {
+                text: "Undo Payment Confirmation";
+                font-size: Theme.text-title;
+                font-weight: Theme.weight-bold;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+            Text {
+                text: "Are you sure you want to reverse this payment confirmation? The tenant's payment status will return to Unpaid.";
+                font-size: Theme.text-sub;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            if root.context != "" : Text {
+                text: root.context;
+                font-size: Theme.text-sub;
+                font-weight: Theme.weight-semibold;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+            if root.payment != "" : Text {
+                text: root.payment;
+                font-size: Theme.text-sub;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+            if root.remaining != "" : Text {
+                text: root.remaining;
+                font-size: Theme.text-caption;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            if root.warning != "" : Banner {
+                text: root.warning;
+                warning: true;
+                dismissible: false;
+            }
+            if root.error != "" : Banner {
+                text: root.error;
+                error: true;
+                dismissible: false;
+            }
+            Text {
+                text: "The original payment record stays in history marked Undone.";
+                font-size: Theme.text-caption;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: Theme.space-2;
+                AppButton {
+                    horizontal-stretch: 1;
+                    text: "Cancel";
+                    kind: ButtonKind.secondary;
+                    clicked => { root.cancel(); }
+                }
+                AppButton {
+                    horizontal-stretch: 1;
+                    text: "Confirm Undo";
+                    kind: ButtonKind.danger;
+                    clicked => { root.confirm(); }
+                }
             }
         }
     }

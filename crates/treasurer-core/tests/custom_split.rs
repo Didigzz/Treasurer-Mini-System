@@ -365,9 +365,11 @@ fn payments_apply_against_the_charged_total() {
         .db
         .record_payment(&CreatePaymentInput {
             bill_share_id: maria_share,
-            amount_minor: 10_000,
+            amount_minor: 16_500,
             paid_at: 1_760_000_000_000,
             note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
         })
         .unwrap();
 
@@ -377,8 +379,10 @@ fn payments_apply_against_the_charged_total() {
         .iter()
         .find(|share| share.share.boarder_id == fixture.maria)
         .unwrap();
-    assert_eq!(maria.state.balance_minor, 6_500);
-    assert_eq!(detail.summary.outstanding_minor, 26_500);
+    assert_eq!(maria.share.total_due_minor(), 16_500);
+    assert_eq!(maria.state.paid_minor, 16_500);
+    assert_eq!(maria.state.balance_minor, 0);
+    assert_eq!(detail.summary.outstanding_minor, 20_000);
 }
 
 #[test]
@@ -397,9 +401,11 @@ fn locked_shares_keep_their_split_but_accept_charge_changes() {
         .db
         .record_payment(&CreatePaymentInput {
             bill_share_id: maria_share,
-            amount_minor: 5_000,
+            amount_minor: 10_000,
             paid_at: 1_760_000_000_000,
             note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
         })
         .unwrap();
 
@@ -421,7 +427,7 @@ fn locked_shares_keep_their_split_but_accept_charge_changes() {
         .find(|share| share.share.boarder_id == fixture.maria)
         .unwrap();
     assert_eq!(maria.share.amount_due_minor, 10_000);
-    assert_eq!(maria.state.balance_minor, 7_000);
+    assert_eq!(maria.state.balance_minor, 2_000);
 }
 
 #[test]
@@ -449,6 +455,8 @@ fn charging_a_settled_bill_reopens_it() {
         amount_minor: 10_000,
         paid_at: 1_760_000_000_000,
         note: None,
+        payment_type: PaymentType::Cash,
+        used_full_balance: false,
     })
     .unwrap();
     assert_eq!(

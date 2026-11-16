@@ -26,7 +26,8 @@ impl Treasurer {
     pub(super) fn payments_by_share(&self) -> Result<HashMap<String, Vec<PaymentRecord>>> {
         let mut statement = self.conn.prepare(
             "SELECT id, bill_share_id, amount_minor, paid_at, note, change_minor,
-                    change_returned_at, change_return_note, voided_at, void_reason, created_at
+                    change_returned_at, change_return_note, voided_at, void_reason, created_at,
+                    payment_type, used_full_balance
              FROM payments",
         )?;
         let payments = statement

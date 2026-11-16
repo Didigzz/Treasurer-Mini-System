@@ -115,7 +115,8 @@ export global Theme {
 
     // Status labels come from treasurer-core (BillStatus / ShareStatus).
     public pure function status-tone(status: string) -> Tone {
-        if status == "Paid" || status == "Settled" { return Tone.success; }
+        if status == "Paid" || status == "Settled"
+            || status == "Paid – Cash" || status == "Paid – Online" { return Tone.success; }
         if status == "Partial" { return Tone.warning; }
         if status == "Unpaid" { return Tone.danger; }
         if status == "Open" { return Tone.accent; }

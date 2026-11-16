@@ -44,7 +44,11 @@ export struct ShareRow {
     // "Change to Return ₱155.00", "Change Returned ₱155.00" or empty.
     change-status: string,
     charge: string,
+    // "Unpaid", "Partial", "Paid – Cash" or "Paid – Online" on the bill screen;
+    // the ledger keeps the plain "Paid".
     status: string,
+    // Balance is zero, so Undo can be offered without comparing label strings.
+    settled: bool,
     has-balance: bool,
     has-change: bool,
     has-change-status: bool,
@@ -63,6 +67,10 @@ export struct PaymentRow {
     title: string,
     subtitle: string,
     amount: string,
+    // "Cash" or "Online Payment".
+    payment-type: string,
+    // "Paid – Cash", "Paid – Online" or "Undone".
+    status: string,
     change: string,
     // "Change to Return ₱155.00", "Change Returned ₱155.00" or empty.
     change-status: string,
@@ -77,6 +85,10 @@ export struct HistoryRow {
     expected: string,
     applied: string,
     outstanding: string,
+    // Net money collected by method for that month's bills; together they add
+    // up to `applied`.
+    cash-collected: string,
+    online-collected: string,
     progress: float,
     settled: bool,
 }
@@ -91,6 +103,14 @@ export struct PickRow {
     name: string,
     selected: bool,
     amount: string,
+}
+
+// One payment choice in the multi-payment undo picker, newest first.
+export struct UndoPickRow {
+    title: string,
+    subtitle: string,
+    amount: string,
+    newest: bool,
 }
 
 // One cell of the calendar grid. Built in Rust from money::calendar_weeks.

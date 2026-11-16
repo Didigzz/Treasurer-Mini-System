@@ -1,4 +1,4 @@
-import { Theme, Tone, Icon, Icons, Card, AppButton, ButtonKind, TextField, SelectField, Toggle, StatusPill, SectionHeader, Divider, EmptyState } from "../components.slint";
+import { Theme, Tone, Icon, Icons, Card, AppButton, ButtonKind, TextField, SelectField, Toggle, StatusPill, SectionHeader, Divider, EmptyState, ProgressBar } from "../components.slint";
 import { Page, Section, ListCard, ListRow } from "../layout.slint";
 import { TypeRow } from "../models.slint";
 
@@ -8,6 +8,17 @@ export component SettingsScreen {
     in property <bool> allow-centavos;
     in property <string> last-backup;
     in property <string> app-version;
+    in property <string> update-installed;
+    in property <string> update-status;
+    in property <string> update-summary;
+    in property <string> update-detail;
+    in property <float> update-progress;
+    in property <string> update-progress-label;
+    in property <bool> update-downloading;
+    in property <bool> update-can-check;
+    in property <bool> update-can-install;
+    in property <bool> update-needs-permission;
+    in property <bool> update-can-retry;
     in property <[TypeRow]> types;
     in-out property <string> type-name;
 
@@ -17,6 +28,10 @@ export component SettingsScreen {
     callback archive-type(int);
     callback export-backup();
     callback restore-backup();
+    callback check-updates();
+    callback install-update();
+    callback open-install-settings();
+    callback retry-update();
 
     Page {
         width: 100%;
@@ -146,6 +161,100 @@ export component SettingsScreen {
                                 clicked => { root.archive-type(i); }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // ---- App updates ----
+        Section {
+            SectionHeader {
+                title: "App updates";
+                caption: "Checks GitHub for new versions when the app opens";
+            }
+            Card {
+                VerticalLayout {
+                    padding: Theme.space-4;
+                    spacing: Theme.space-4;
+
+                    HorizontalLayout {
+                        spacing: Theme.space-3;
+                        Text {
+                            text: "Installed version";
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                            font-size: Theme.text-sub;
+                            color: Theme.text-muted;
+                        }
+                        Text {
+                            text: root.update-installed;
+                            vertical-alignment: center;
+                            font-size: Theme.text-body;
+                            font-weight: Theme.weight-semibold;
+                            color: Theme.text;
+                        }
+                    }
+
+                    Divider { }
+
+                    VerticalLayout {
+                        spacing: Theme.space-2;
+
+                        Text {
+                            text: root.update-status;
+                            font-size: Theme.text-body;
+                            font-weight: Theme.weight-medium;
+                            color: Theme.text;
+                            wrap: word-wrap;
+                        }
+                        if root.update-summary != "" : Text {
+                            text: root.update-summary;
+                            font-size: Theme.text-sub;
+                            color: Theme.text-muted;
+                            overflow: elide;
+                        }
+                        if root.update-downloading : VerticalLayout {
+                            spacing: Theme.space-2;
+                            ProgressBar { value: root.update-progress; }
+                            Text {
+                                text: root.update-progress-label;
+                                font-size: Theme.text-sub;
+                                color: Theme.text-muted;
+                            }
+                        }
+                    }
+
+                    // FlexboxLayout wraps, so two actions never overflow at 320 px.
+                    if root.update-can-check || root.update-can-install || root.update-needs-permission || root.update-can-retry : FlexboxLayout {
+                        spacing: Theme.space-2;
+
+                        if root.update-can-install : AppButton {
+                            text: "Install update";
+                            clicked => { root.install-update(); }
+                        }
+                        if root.update-needs-permission : AppButton {
+                            text: "Open settings";
+                            clicked => { root.open-install-settings(); }
+                        }
+                        if root.update-can-retry : AppButton {
+                            text: "Retry";
+                            kind: ButtonKind.secondary;
+                            compact: true;
+                            clicked => { root.retry-update(); }
+                        }
+                        if root.update-can-check : AppButton {
+                            text: "Check for updates";
+                            kind: ButtonKind.secondary;
+                            compact: true;
+                            clicked => { root.check-updates(); }
+                        }
+                    }
+
+                    if root.update-detail != "" : Text {
+                        text: root.update-detail;
+                        font-size: Theme.text-caption;
+                        color: Theme.text-muted;
+                        wrap: word-wrap;
                     }
                 }
             }

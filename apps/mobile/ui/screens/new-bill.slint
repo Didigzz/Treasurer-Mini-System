@@ -4,21 +4,31 @@ import { PickRow } from "../models.slint";
 
 component Checkmark inherits Rectangle {
     in property <bool> checked;
+    in property <bool> indeterminate: false;
 
     width: 24px;
     height: 24px;
     border-radius: 7px;
-    background: checked ? Theme.accent : transparent;
-    border-width: checked ? 0 : 2px;
-    border-color: Theme.text-faint;
+    background: checked && !indeterminate ? Theme.accent : transparent;
+    border-width: checked && !indeterminate ? 0 : 2px;
+    border-color: checked || indeterminate ? Theme.accent : Theme.text-faint;
 
     animate background { duration: Theme.fast; }
 
-    if root.checked : Icon {
+    if checked && !indeterminate : Icon {
         path: Icons.check;
         color: Theme.on-accent;
         size: 16px;
         stroke-width: 2.6px;
+    }
+
+    if indeterminate : Rectangle {
+        width: 12px;
+        height: 2px;
+        border-radius: 1px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Theme.accent;
     }
 }
 
@@ -27,6 +37,10 @@ export component NewBillScreen {
     in property <string> bill-type-label;
     in property <bool> has-bill-types;
     in property <[PickRow]> picks;
+    in property <int> picks-selected-count: 0;
+    in property <int> picks-total-count: 0;
+    in property <bool> picks-all-selected: false;
+    in property <bool> picks-some-selected: false;
     in property <string> bill-period-label;
     in property <string> bill-due-label;
     in-out property <string> bill-total;
@@ -37,9 +51,18 @@ export component NewBillScreen {
     callback pick-due();
     callback pick-toggle(int);
     callback pick-amount(int, string);
+    callback select-all-picks();
     callback create-bill();
     callback go-settings();
     callback go-boarders();
+
+    // "17 of 20 selected"; never hidden, even at zero.
+    property <string> count-label: root.picks-total-count == 0
+        ? "0 selected"
+        : root.picks-selected-count + " of " + root.picks-total-count + " selected";
+    property <string> select-all-label: "Select all tenants, " + root.count-label
+        + (root.picks-some-selected ? ", partially selected"
+            : root.picks-all-selected ? ", selected" : ", not selected");
 
     VerticalLayout {
         width: 100%;
@@ -105,7 +128,7 @@ export component NewBillScreen {
             Section {
                 SectionHeader {
                     title: "Split among";
-                    caption: "Leave amounts empty to split equally. A typed amount is fixed; the rest are split equally. You can edit or exclude boarders after the bill is created.";
+                    caption: root.count-label + ". Leave amounts empty to split equally. A typed amount is fixed; the rest are split equally. You can edit or exclude boarders after the bill is created.";
                 }
 
                 if root.picks.length == 0 : Card {
@@ -115,6 +138,46 @@ export component NewBillScreen {
                         body: "Add boarders before creating a bill.";
                         action-text: "Go to Boarders";
                         action => { root.go-boarders(); }
+                    }
+                }
+
+                if root.picks.length > 0 : ListCard {
+                    ListRow {
+                        show-divider: false;
+                        label: root.select-all-label;
+                        clicked => { root.select-all-picks(); }
+
+                        HorizontalLayout {
+                            padding-left: Theme.space-4;
+                            padding-right: Theme.space-4;
+                            padding-top: Theme.space-2;
+                            padding-bottom: Theme.space-2;
+                            spacing: Theme.space-3;
+
+                            VerticalLayout {
+                                alignment: center;
+                                Checkmark {
+                                    checked: root.picks-all-selected;
+                                    indeterminate: root.picks-some-selected;
+                                }
+                            }
+                            Text {
+                                text: "Select all";
+                                horizontal-stretch: 1;
+                                vertical-alignment: center;
+                                font-size: Theme.text-body;
+                                font-weight: Theme.weight-semibold;
+                                color: Theme.text;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: root.count-label;
+                                vertical-alignment: center;
+                                font-size: Theme.text-caption;
+                                color: Theme.text-muted;
+                                overflow: elide;
+                            }
+                        }
                     }
                 }
 
@@ -178,8 +241,20 @@ export component NewBillScreen {
                 padding-right: Responsive.gutter;
                 padding-top: Theme.space-3;
                 padding-bottom: Theme.space-3 + root.bottom-inset;
+                spacing: Theme.space-3;
+
+                Text {
+                    text: Responsive.compact
+                        ? root.picks-selected-count + " selected"
+                        : root.count-label;
+                    vertical-alignment: center;
+                    font-size: Theme.text-sub;
+                    font-weight: Theme.weight-semibold;
+                    color: Theme.text-muted;
+                    overflow: elide;
+                }
+                Rectangle { horizontal-stretch: 1; }
                 AppButton {
-                    horizontal-stretch: 1;
                     text: "Create bill";
                     icon: Icons.check;
                     enabled: root.has-bill-types && root.picks.length > 0;

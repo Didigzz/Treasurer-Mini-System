@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 
 use treasurer_core::calculations::{
-    compute_bill_summary, compute_boarder_period_summaries, compute_history_totals,
-    compute_share_state, equal_split, list_history_periods, matches_boarder_filter,
-    matches_history_filter, matches_share_filter, preview_payment, recompute_payment_changes,
-    sort_history_bills, split_with_overrides, validate_custom_shares, BoarderPeriodSummaryInput,
-    SplitFailure, SplitOutcome, SplitSuccess,
+    collected_for_payment_type, compute_bill_summary, compute_boarder_period_summaries,
+    compute_history_totals, compute_share_state, equal_split, latest_active_payment_type,
+    list_history_periods, matches_boarder_filter, matches_history_filter,
+    matches_payment_type_filter, matches_share_filter, preview_payment,
+    recompute_payment_changes, sort_history_bills, split_with_overrides,
+    validate_custom_shares, BoarderPeriodSummaryInput, SplitFailure, SplitOutcome, SplitSuccess,
 };
 use treasurer_core::models::{
-    BillShare, HistoryBillRef, HistoryFilter, HistoryTotals, PaymentRecord, ShareFilter,
-    ShareStatus, ShareWithState, SplitBoarder, SplitResult,
+    BillShare, HistoryBillRef, HistoryFilter, HistoryTotals, PaymentRecord, PaymentType,
+    PaymentWithComputedChange, ShareFilter, ShareStatus, ShareWithState, SplitBoarder, SplitResult,
 };
 
 fn payment(id: &str, amount_minor: i64, paid_at: i64) -> PaymentRecord {
@@ -25,6 +26,23 @@ fn payment(id: &str, amount_minor: i64, paid_at: i64) -> PaymentRecord {
         voided_at: None,
         void_reason: None,
         created_at: paid_at,
+        payment_type: PaymentType::Cash,
+        used_full_balance: false,
+    }
+}
+
+fn with_change(payment: PaymentRecord, computed_change_minor: i64) -> PaymentWithComputedChange {
+    PaymentWithComputedChange {
+        payment,
+        computed_change_minor,
+        needs_review: false,
+    }
+}
+
+fn typed_payment(id: &str, amount_minor: i64, paid_at: i64, kind: PaymentType) -> PaymentRecord {
+    PaymentRecord {
+        payment_type: kind,
+        ..payment(id, amount_minor, paid_at)
     }
 }
 
@@ -571,4 +589,114 @@ fn history_totals_sum_and_default_to_zero() {
         }
     );
     assert_eq!(compute_history_totals(&[]), HistoryTotals::default());
+}
+
+#[test]
+fn latest_active_payment_type_follows_the_newest_active_payment() {
+    assert_eq!(latest_active_payment_type(&[]), None);
+
+    let cash = with_change(typed_payment("cash", 1_000, 100, PaymentType::Cash), 0);
+    assert_eq!(
+        latest_active_payment_type(&[cash.clone()]),
+        Some(PaymentType::Cash)
+    );
+
+    let online = with_change(typed_payment("online", 1_000, 200, PaymentType::Online), 0);
+    assert_eq!(
+        latest_active_payment_type(&[cash.clone(), online.clone()]),
+        Some(PaymentType::Online)
+    );
+
+    // Undoing the newest payment falls back to the newest remaining one.
+    let mut undone_online = online.clone();
+    undone_online.payment.voided_at = Some(300);
+    assert_eq!(
+        latest_active_payment_type(&[cash.clone(), undone_online.clone()]),
+        Some(PaymentType::Cash)
+    );
+
+    let mut undone_cash = cash.clone();
+    undone_cash.payment.voided_at = Some(50);
+    assert_eq!(
+        latest_active_payment_type(&[undone_cash, undone_online]),
+        None
+    );
+}
+
+#[test]
+fn latest_active_payment_type_breaks_equal_paid_at_deterministically() {
+    let mut first = typed_payment("a", 1_000, 100, PaymentType::Cash);
+    first.created_at = 10;
+    let mut second = typed_payment("b", 1_000, 100, PaymentType::Online);
+    second.created_at = 20;
+
+    assert_eq!(
+        latest_active_payment_type(&[
+            with_change(second.clone(), 0),
+            with_change(first.clone(), 0),
+        ]),
+        Some(PaymentType::Online)
+    );
+
+    // Same timestamps: the greater id wins, so the answer never depends on order.
+    let mut third = typed_payment("c", 1_000, 100, PaymentType::Cash);
+    third.created_at = 20;
+    assert_eq!(
+        latest_active_payment_type(&[with_change(third, 0), with_change(second, 0)]),
+        Some(PaymentType::Cash)
+    );
+}
+
+#[test]
+fn payment_type_filter_matches_only_the_selected_method() {
+    assert!(matches_payment_type_filter(None, 0));
+    assert!(matches_payment_type_filter(Some(PaymentType::Cash), 0));
+    assert!(matches_payment_type_filter(Some(PaymentType::Online), 0));
+
+    assert!(matches_payment_type_filter(Some(PaymentType::Cash), 1));
+    assert!(!matches_payment_type_filter(Some(PaymentType::Online), 1));
+    assert!(matches_payment_type_filter(Some(PaymentType::Online), 2));
+    assert!(!matches_payment_type_filter(Some(PaymentType::Cash), 2));
+
+    // A share with no active payment only appears under All.
+    assert!(!matches_payment_type_filter(None, 1));
+    assert!(!matches_payment_type_filter(None, 2));
+}
+
+#[test]
+fn collected_totals_split_by_method_and_net_out_change() {
+    assert_eq!(collected_for_payment_type(&[], PaymentType::Cash), 0);
+
+    let payments = vec![
+        with_change(typed_payment("cash", 5_000, 100, PaymentType::Cash), 0),
+        with_change(typed_payment("online", 5_000, 200, PaymentType::Online), 0),
+    ];
+    assert_eq!(
+        collected_for_payment_type(&payments, PaymentType::Cash),
+        5_000
+    );
+    assert_eq!(
+        collected_for_payment_type(&payments, PaymentType::Online),
+        5_000
+    );
+
+    // An overpayment contributes its net amount, returned or still owed.
+    let mut returned = with_change(typed_payment("over", 7_000, 300, PaymentType::Cash), 2_000);
+    returned.payment.change_returned_at = Some(400);
+    assert_eq!(
+        collected_for_payment_type(&[returned.clone()], PaymentType::Cash),
+        5_000
+    );
+
+    // Undone payments never count.
+    let mut undone = returned;
+    undone.payment.voided_at = Some(500);
+    assert_eq!(collected_for_payment_type(&[undone], PaymentType::Cash), 0);
+
+    // Change larger than the amount never produces a negative total.
+    let mismatched = with_change(typed_payment("odd", 1_000, 600, PaymentType::Cash), 2_000);
+    assert_eq!(
+        collected_for_payment_type(&[mismatched], PaymentType::Cash),
+        0
+    );
 }

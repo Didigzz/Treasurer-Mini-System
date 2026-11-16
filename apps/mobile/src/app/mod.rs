@@ -5,6 +5,7 @@ mod calendar;
 mod dashboard;
 mod history;
 mod settings;
+mod update;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -20,6 +21,8 @@ use treasurer_core::money;
 
 use self::bills::{Pick, ShareEntry};
 
+use crate::update::UpdateStatus;
+use crate::version;
 use crate::AppWindow;
 
 pub fn run() -> Result<()> {
@@ -30,6 +33,7 @@ pub fn run() -> Result<()> {
     let ui = AppWindow::new()?;
     let app = Rc::new(RefCell::new(App::new(ui.as_weak(), db)));
     App::wire(app.clone());
+    start_update_loop(app.clone());
     app.borrow_mut().start();
 
     ui.run()?;
@@ -66,6 +70,11 @@ struct App {
     detail_archived: bool,
     share_filter: String,
     share_filter_mode: i32,
+    /// 0 All, 1 Cash, 2 Online; filters the bill's share list only.
+    share_type_filter: i32,
+    /// Net money collected by each method on the open bill (whole bill).
+    cash_collected_minor: i64,
+    online_collected_minor: i64,
     /// Share ID captured when the editor opens; resolved against `detail_shares`.
     edit_share_id: Option<String>,
     ledger_bill_ids: Vec<String>,
@@ -98,6 +107,18 @@ struct App {
     manage_candidate_ids: Vec<String>,
     /// Share id parallel to `payment_ids` (bill or ledger payment rows).
     payment_share_ids: Vec<String>,
+    /// Payment awaiting confirmation in the centered undo dialog.
+    undo_payment_id: Option<String>,
+    undo_share_id: Option<String>,
+    /// Payments listed in the multi-payment undo picker, newest first.
+    undo_picker_ids: Vec<String>,
+    /// Updater state shared with the worker thread, the last rendered status,
+    /// and the timer that polls it.
+    update: Option<crate::update::Shared>,
+    update_state: UpdateStatus,
+    update_last_checked: Option<std::time::Instant>,
+    install_started: Option<std::time::Instant>,
+    update_timer: slint::Timer,
 }
 
 impl App {
@@ -132,6 +153,9 @@ impl App {
             detail_archived: false,
             share_filter: String::new(),
             share_filter_mode: 0,
+            share_type_filter: 0,
+            cash_collected_minor: 0,
+            online_collected_minor: 0,
             edit_share_id: None,
             ledger_bill_ids: Vec::new(),
             last_tab: 0,
@@ -156,6 +180,14 @@ impl App {
             manage_share_ids: Vec::new(),
             manage_candidate_ids: Vec::new(),
             payment_share_ids: Vec::new(),
+            undo_payment_id: None,
+            undo_share_id: None,
+            undo_picker_ids: Vec::new(),
+            update: None,
+            update_state: UpdateStatus::Idle,
+            update_last_checked: None,
+            install_started: None,
+            update_timer: slint::Timer::default(),
         }
     }
 
@@ -184,6 +216,9 @@ impl App {
         self.detail_archived = false;
         self.share_filter.clear();
         self.share_filter_mode = 0;
+        self.share_type_filter = 0;
+        self.cash_collected_minor = 0;
+        self.online_collected_minor = 0;
         self.edit_share_id = None;
         let ui = self.ui();
         ui.set_shares(slint::ModelRc::default());
@@ -191,6 +226,9 @@ impl App {
         ui.set_share_preview(slint::ModelRc::default());
         ui.set_share_filter("".into());
         ui.set_share_filter_mode(0);
+        ui.set_share_type_filter(0);
+        ui.set_share_type_collected_caption("".into());
+        ui.set_share_type_collected("".into());
         ui.set_share_total_count(0);
         ui.set_share_visible_count(0);
         ui.set_share_edit_error("".into());
@@ -217,9 +255,9 @@ impl App {
             .collect();
         self.ui()
             .set_month_names(ModelRc::new(VecModel::from(month_names)));
-        self.ui()
-            .set_app_version("Boarding House Treasurer 1.1.0".into());
+        self.ui().set_app_version(version::version_label().into());
         self.ui().set_screen_title("Dashboard".into());
+        self.start_updates();
     }
 
     fn load_settings(&mut self) {
@@ -236,6 +274,7 @@ impl App {
         if matches!(screen, 0 | 1 | 3) {
             self.last_tab = screen;
         }
+        let previous = self.ui().get_screen();
         let ui = self.ui();
         ui.set_screen(screen);
         ui.set_message("".into());
@@ -253,6 +292,15 @@ impl App {
             }
             .into(),
         );
+
+        // Leaving Settings cancels an in-flight download (spec §6.2); entering
+        // it re-checks the install permission after a trip to system settings.
+        if previous == 4 && screen != 4 {
+            self.cancel_update_download();
+        }
+        if screen == 4 {
+            self.resume_update_state();
+        }
 
         match screen {
             0 => self.refresh_dashboard(),
@@ -298,7 +346,24 @@ impl App {
         history::wire(&app, &ui);
         settings::wire(&app, &ui);
         backup::wire(&app, &ui);
+        update::wire(&app, &ui);
     }
+}
+
+/// 150 ms UI-thread poll of the updater's shared state.
+fn start_update_loop(app: Rc<RefCell<App>>) {
+    let weak = Rc::downgrade(&app);
+    let timer = slint::Timer::default();
+    timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(150),
+        move || {
+            if let Some(app) = weak.upgrade() {
+                app.borrow_mut().poll_updates();
+            }
+        },
+    );
+    app.borrow_mut().update_timer = timer;
 }
 
 /// Up to two initials for an avatar, e.g. "Maria Santos" -> "MS".

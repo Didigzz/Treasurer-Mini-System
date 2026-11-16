@@ -117,6 +117,7 @@ impl App {
                     )
                     .into(),
                     status: item.state.status.label().into(),
+                    settled: item.state.balance_minor == 0,
                     has_balance: item.state.balance_minor > 0,
                     has_change: outstanding > 0,
                     has_change_status: !change_status.is_empty(),
@@ -163,13 +164,15 @@ impl App {
                         "{}{}",
                         money::format_datetime(record.paid_at),
                         if record.voided_at.is_some() {
-                            " · voided"
+                            " · undone"
                         } else {
                             ""
                         }
                     )
                     .into(),
                     amount: money::format_money(record.amount_minor, &currency).into(),
+                    payment_type: record.payment_type.label().into(),
+                    status: record.status_label().into(),
                     change: money::format_money(computed, &currency).into(),
                     change_status: change_status.into(),
                     can_return: record.is_active()

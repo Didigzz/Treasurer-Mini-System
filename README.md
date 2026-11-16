@@ -22,21 +22,31 @@ See [docs/installation.md](docs/installation.md) for building and installing the
   warning, archive/unarchive.
 - **Calendar pickers** — every date the treasurer enters (bill period, due date, payment
   date and time, dashboard month, change-return date) opens a month-grid calendar sheet
-  instead of typed text. The dashboard month is also tappable.
+  instead of typed text, from pages and from inside the payment, return-change, and
+  payment-detail sheets. The dashboard month is also tappable.
+- **Select all tenants** — the New bill form's tri-state Select all control, with the
+  selected count always visible and typed custom amounts preserved.
 - **Equal or custom splits** — leftover centavos go to the first boarders in selection
   order; custom shares must add up to the bill total.
 - **Share management after creation** — the bill's Manage shares sheet edits, excludes
   (keeping the bill total and re-splitting it equally among the remaining boarders), or
   adds a boarder to that one bill.
-- **Payments** — partial payments, date and time picker, editable date/time, live balance
-  and change preview.
+- **Payments** — a payment must cover the remaining balance (paying more produces change
+  to return), date and time picker, editable date/time, live balance and change preview.
+- **Paid by method** — a settled share's pill shows `Paid – Cash` or `Paid – Online`,
+  taken from its newest active payment.
+- **Share filters** — the bill's Shares list narrows by name, by All / Unpaid / Paid, and
+  by All / Cash / Online. Selecting Cash or Online also shows how much that method
+  collected on the bill, net of change.
 - **Overpayment notice** — a payment that creates change opens a non-dismissing dialog
   naming the amount received and the excess, with a "Return change now" shortcut.
 - **Change tracking** — explicit Change to Return / Change Returned status on payment and
   share rows, a chosen return date, and a read-only payment breakdown showing total bill,
   amount received, change returned, net payment, and both statuses. A settled bill can
   still have change outstanding.
-- **Corrections** — void a payment with a required reason; history is retained.
+- **Undo payment** — reverse an accidental payment confirmation after a centered
+  confirmation dialog. The original record stays in history marked Undone; balances,
+  statuses, and change recalculate from the remaining payments.
 - **Backup** — export all data as JSON through the share sheet; restore replaces all
   local data after confirmation and validation.
 - **Dashboard** — selected-month totals, bill progress, and boarder balances with
@@ -83,5 +93,5 @@ transaction. Restore never merges.
 - No cloud sync or online backup; export a JSON backup regularly.
 - Amounts are stored in integer minor units and displayed in the selected currency without
   conversion when the currency setting changes.
-- Bill money fields lock after the first active payment; corrections are made by voiding a
+- Bill money fields lock after the first active payment; corrections are made by undoing a
   payment and recording a new one.

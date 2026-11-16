@@ -17,6 +17,7 @@ export component LedgerScreen {
 
     callback open-bill(int);
     callback open-payment(int);
+    callback undo-payment(int);
 
     Page {
         width: 100%;
@@ -111,9 +112,14 @@ export component LedgerScreen {
                             alignment: center;
                             spacing: 3px;
                             HorizontalLayout {
-                                spacing: Theme.space-2;
+                                spacing: Theme.space-3;
+                                // The name absorbs the slack so the status pill
+                                // holds one right-hand column no matter how long
+                                // the bill's name is.
                                 Text {
                                     text: share.name;
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
                                     font-size: Theme.text-body;
                                     font-weight: Theme.weight-semibold;
                                     color: Theme.text;
@@ -124,7 +130,6 @@ export component LedgerScreen {
                                     text: share.status;
                                     tone: Theme.status-tone(share.status);
                                 }
-                                Rectangle { horizontal-stretch: 1; }
                             }
                             Text {
                                 text: share.has-balance ? share.balance + " left to pay" : "Fully paid";
@@ -165,6 +170,7 @@ export component LedgerScreen {
                 for payment[i] in root.payments : PaymentItem {
                     show-divider: i > 0;
                     payment: payment;
+                    undo => { root.undo-payment(i); }
                     open-payment => { root.open-payment(i); }
                 }
             }

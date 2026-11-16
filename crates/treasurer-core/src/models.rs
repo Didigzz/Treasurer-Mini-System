@@ -139,6 +139,44 @@ impl BillShare {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PaymentType {
+    #[default]
+    Cash,
+    Online,
+}
+
+impl PaymentType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PaymentType::Cash => "cash",
+            PaymentType::Online => "online",
+        }
+    }
+
+    pub fn from_db(value: &str) -> Self {
+        if value.eq_ignore_ascii_case("online") {
+            PaymentType::Online
+        } else {
+            PaymentType::Cash
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PaymentType::Cash => "Cash",
+            PaymentType::Online => "Online Payment",
+        }
+    }
+
+    pub fn status_label(self) -> &'static str {
+        match self {
+            PaymentType::Cash => "Paid – Cash",
+            PaymentType::Online => "Paid – Online",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaymentRecord {
     pub id: String,
@@ -152,11 +190,22 @@ pub struct PaymentRecord {
     pub voided_at: Option<i64>,
     pub void_reason: Option<String>,
     pub created_at: i64,
+    pub payment_type: PaymentType,
+    pub used_full_balance: bool,
 }
 
 impl PaymentRecord {
     pub fn is_active(&self) -> bool {
         self.voided_at.is_none()
+    }
+
+    /// The transaction status is driven only by how the payment was made.
+    pub fn status_label(&self) -> &'static str {
+        if self.is_active() {
+            self.payment_type.status_label()
+        } else {
+            "Undone"
+        }
     }
 }
 
@@ -389,4 +438,6 @@ pub struct CreatePaymentInput {
     pub amount_minor: i64,
     pub paid_at: i64,
     pub note: Option<String>,
+    pub payment_type: PaymentType,
+    pub used_full_balance: bool,
 }

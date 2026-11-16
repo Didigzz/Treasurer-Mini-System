@@ -2,6 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use slint::{ModelRc, VecModel};
 
+use treasurer_core::calculations::collected_for_payment_type;
 use treasurer_core::models::*;
 use treasurer_core::money;
 
@@ -39,6 +40,22 @@ impl App {
                     .iter()
                     .map(|item| item.summary.outstanding_minor)
                     .sum();
+                // Net of change, like the bill screen's method totals; the two
+                // add up to the month's collected (applied) figure.
+                let cash: i64 = bills
+                    .iter()
+                    .flat_map(|item| item.shares.iter())
+                    .map(|share| {
+                        collected_for_payment_type(&share.state.payments, PaymentType::Cash)
+                    })
+                    .sum();
+                let online: i64 = bills
+                    .iter()
+                    .flat_map(|item| item.shares.iter())
+                    .map(|share| {
+                        collected_for_payment_type(&share.state.payments, PaymentType::Online)
+                    })
+                    .sum();
 
                 HistoryRow {
                     period: money::format_period(period.year, period.month).into(),
@@ -51,6 +68,8 @@ impl App {
                     expected: money::format_money(expected, &self.currency).into(),
                     applied: money::format_money(applied, &self.currency).into(),
                     outstanding: money::format_money(outstanding, &self.currency).into(),
+                    cash_collected: money::format_money(cash, &self.currency).into(),
+                    online_collected: money::format_money(online, &self.currency).into(),
                     progress: progress(applied, expected),
                     settled: outstanding <= 0,
                 }

@@ -72,6 +72,8 @@ fn creating_a_bill_splits_and_locks_money_after_a_payment() {
         amount_minor: 60_000,
         paid_at: 1_760_000_000_000,
         note: None,
+        payment_type: PaymentType::Cash,
+        used_full_balance: false,
     })
     .unwrap();
 
@@ -115,6 +117,8 @@ fn overpayment_creates_change_and_marking_it_returned_clears_it() {
             amount_minor: 70_000,
             paid_at: 1_760_000_000_000,
             note: Some("cash".to_string()),
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
         })
         .unwrap();
 
@@ -131,31 +135,37 @@ fn overpayment_creates_change_and_marking_it_returned_clears_it() {
     assert_eq!(detail.summary.change_returned_minor, 10_000);
 }
 
-#[test]
-fn voiding_a_payment_recomputes_totals() {
-    let (db, ana, ben) = setup();
-    let bill_id = create_rent_bill(&db, &ana, &ben);
-    let detail = db.bill_detail(&bill_id).unwrap().unwrap();
-    let share_id = detail
+fn share_id_for(db: &Treasurer, bill_id: &str, boarder_id: &str) -> String {
+    db.bill_detail(bill_id)
+        .unwrap()
+        .unwrap()
         .shares
         .iter()
-        .find(|share| share.share.boarder_id == ana)
+        .find(|share| share.share.boarder_id == boarder_id)
         .unwrap()
         .share
         .id
-        .clone();
+        .clone()
+}
+
+#[test]
+fn undoing_a_payment_recomputes_totals_and_keeps_the_row() {
+    let (db, ana, ben) = setup();
+    let bill_id = create_rent_bill(&db, &ana, &ben);
+    let share_id = share_id_for(&db, &bill_id, &ana);
 
     let payment_id = db
         .record_payment(&CreatePaymentInput {
-            bill_share_id: share_id,
+            bill_share_id: share_id.clone(),
             amount_minor: 70_000,
             paid_at: 1_760_000_000_000,
             note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
         })
         .unwrap();
 
-    assert!(db.void_payment(&payment_id, "  ").is_err());
-    db.void_payment(&payment_id, "Wrong amount").unwrap();
+    db.undo_payment(&payment_id).unwrap();
 
     let detail = db.bill_detail(&bill_id).unwrap().unwrap();
     assert_eq!(detail.summary.applied_minor, 0);
@@ -169,7 +179,230 @@ fn voiding_a_payment_recomputes_totals() {
         .find(|payment| payment.payment.id == payment_id)
         .unwrap();
     assert!(payment.payment.voided_at.is_some());
-    assert_eq!(payment.payment.void_reason.as_deref(), Some("Wrong amount"));
+    assert_eq!(payment.payment.void_reason, None);
+    assert_eq!(payment.payment.amount_minor, 70_000);
+    assert_eq!(payment.payment.paid_at, 1_760_000_000_000);
+    assert_eq!(payment.payment.change_minor, 0);
+
+    let share = detail
+        .shares
+        .iter()
+        .find(|share| share.share.id == share_id)
+        .unwrap();
+    assert_eq!(share.state.status, ShareStatus::Unpaid);
+    assert_eq!(share.state.balance_minor, 60_000);
+
+    // A second undo of the same payment is rejected.
+    let error = db.undo_payment(&payment_id).unwrap_err().to_string();
+    assert!(error.contains("already undone"), "unexpected error: {error}");
+}
+
+#[test]
+fn undoing_one_of_two_payments_leaves_the_share_partial() {
+    let (db, ana, ben) = setup();
+    let bill_id = create_rent_bill(&db, &ana, &ben);
+    let share_id = share_id_for(&db, &bill_id, &ana);
+
+    // Written before payments had to cover the balance, so it is inserted
+    // directly: a legacy partial share stays readable and completable.
+    db.conn
+        .execute(
+            "INSERT INTO payments (id, bill_share_id, amount_minor, paid_at, note, change_minor,
+                                   change_returned_at, change_return_note, voided_at, void_reason,
+                                   created_at, payment_type, used_full_balance)
+             VALUES ('legacy-partial', ?1, 30000, 1760000000000, NULL, 0, NULL, NULL, NULL, NULL,
+                     1760000000000, 'cash', 0)",
+            [share_id.as_str()],
+        )
+        .unwrap();
+    let first = "legacy-partial".to_string();
+    let second = db
+        .record_payment(&CreatePaymentInput {
+            bill_share_id: share_id.clone(),
+            amount_minor: 40_000,
+            paid_at: 1_760_000_100_000,
+            note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
+        })
+        .unwrap();
+
+    db.undo_payment(&second).unwrap();
+
+    let share = db
+        .bill_detail(&bill_id)
+        .unwrap()
+        .unwrap()
+        .shares
+        .into_iter()
+        .find(|share| share.share.id == share_id)
+        .unwrap();
+    assert_eq!(share.state.status, ShareStatus::Partial);
+    assert_eq!(share.state.paid_minor, 30_000);
+    assert_eq!(share.state.balance_minor, 30_000);
+
+    let remaining = share
+        .state
+        .payments
+        .iter()
+        .find(|item| item.payment.id == first)
+        .unwrap();
+    assert_eq!(remaining.computed_change_minor, 0);
+    assert_eq!(remaining.payment.change_minor, 0);
+}
+
+#[test]
+fn undoing_an_overpayment_clears_the_change_obligation() {
+    let (db, ana, ben) = setup();
+    let bill_id = create_rent_bill(&db, &ana, &ben);
+    let share_id = share_id_for(&db, &bill_id, &ana);
+
+    let payment_id = db
+        .record_payment(&CreatePaymentInput {
+            bill_share_id: share_id,
+            amount_minor: 70_000,
+            paid_at: 1_760_000_000_000,
+            note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
+        })
+        .unwrap();
+
+    assert_eq!(
+        db.bill_detail(&bill_id)
+            .unwrap()
+            .unwrap()
+            .summary
+            .change_outstanding_minor,
+        10_000
+    );
+
+    db.undo_payment(&payment_id).unwrap();
+
+    let detail = db.bill_detail(&bill_id).unwrap().unwrap();
+    assert_eq!(detail.summary.change_outstanding_minor, 0);
+    assert_eq!(detail.summary.change_returned_minor, 0);
+    let payment = detail
+        .shares
+        .iter()
+        .flat_map(|share| share.state.payments.iter())
+        .find(|item| item.payment.id == payment_id)
+        .unwrap();
+    assert_eq!(payment.payment.change_minor, 0);
+}
+
+#[test]
+fn returned_change_blocks_undo() {
+    let (db, ana, ben) = setup();
+    let bill_id = create_rent_bill(&db, &ana, &ben);
+    let share_id = share_id_for(&db, &bill_id, &ana);
+
+    let payment_id = db
+        .record_payment(&CreatePaymentInput {
+            bill_share_id: share_id,
+            amount_minor: 70_000,
+            paid_at: 1_760_000_000_000,
+            note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
+        })
+        .unwrap();
+    db.mark_change_returned(&payment_id, 1_760_000_100_000, None)
+        .unwrap();
+
+    let error = db.undo_payment(&payment_id).unwrap_err().to_string();
+    assert!(
+        error.contains("change was already returned"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn an_archived_bill_blocks_undo_until_it_is_restored() {
+    let (db, ana, ben) = setup();
+    let bill_id = create_rent_bill(&db, &ana, &ben);
+    let share_id = share_id_for(&db, &bill_id, &ana);
+
+    let payment_id = db
+        .record_payment(&CreatePaymentInput {
+            bill_share_id: share_id,
+            amount_minor: 60_000,
+            paid_at: 1_760_000_000_000,
+            note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
+        })
+        .unwrap();
+
+    db.set_bill_archived(&bill_id, true).unwrap();
+    let error = db.undo_payment(&payment_id).unwrap_err().to_string();
+    assert!(
+        error.contains("Restore this bill"),
+        "unexpected error: {error}"
+    );
+
+    db.set_bill_archived(&bill_id, false).unwrap();
+    db.undo_payment(&payment_id).unwrap();
+    assert_eq!(
+        db.bill_detail(&bill_id)
+            .unwrap()
+            .unwrap()
+            .summary
+            .applied_minor,
+        0
+    );
+}
+
+#[test]
+fn a_legacy_void_reason_survives_undo_labelling_and_backup() {
+    let (db, ana, ben) = setup();
+    let bill_id = create_rent_bill(&db, &ana, &ben);
+    let share_id = share_id_for(&db, &bill_id, &ana);
+
+    let payment_id = db
+        .record_payment(&CreatePaymentInput {
+            bill_share_id: share_id,
+            amount_minor: 70_000,
+            paid_at: 1_760_000_000_000,
+            note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
+        })
+        .unwrap();
+
+    // Rows written by the old Void flow carry a stored reason.
+    db.conn
+        .execute(
+            "UPDATE payments SET voided_at = 1, void_reason = 'Recorded twice' WHERE id = ?1",
+            [&payment_id],
+        )
+        .unwrap();
+
+    let detail = db.bill_detail(&bill_id).unwrap().unwrap();
+    let payment = detail
+        .shares
+        .iter()
+        .flat_map(|share| share.state.payments.iter())
+        .find(|item| item.payment.id == payment_id)
+        .unwrap();
+    assert_eq!(payment.payment.void_reason.as_deref(), Some("Recorded twice"));
+    assert!(payment.payment.voided_at.is_some());
+    assert_eq!(detail.summary.applied_minor, 0);
+
+    let json = db.export_backup_json().unwrap();
+    let restored = Treasurer::open_in_memory().unwrap();
+    restored.import_backup_json(&json).unwrap();
+
+    let detail = restored.bill_detail(&bill_id).unwrap().unwrap();
+    let payment = detail
+        .shares
+        .iter()
+        .flat_map(|share| share.state.payments.iter())
+        .find(|item| item.payment.id == payment_id)
+        .unwrap();
+    assert_eq!(payment.payment.void_reason.as_deref(), Some("Recorded twice"));
+    assert!(payment.payment.voided_at.is_some());
+    assert_eq!(detail.summary.applied_minor, 0);
 }
 
 #[test]
@@ -253,6 +486,8 @@ fn backup_export_and_restore_round_trip_everything() {
         amount_minor: 70_000,
         paid_at: 1_760_000_000_000,
         note: Some("cash".to_string()),
+        payment_type: PaymentType::Cash,
+        used_full_balance: false,
     })
     .unwrap();
     db.set_currency_code("USD").unwrap();
@@ -285,6 +520,45 @@ fn backup_export_and_restore_round_trip_everything() {
 }
 
 #[test]
+fn payment_type_and_full_balance_usage_persist_and_back_up() {
+    let (db, ana, ben) = setup();
+    let bill_id = create_rent_bill(&db, &ana, &ben);
+    let detail = db.bill_detail(&bill_id).unwrap().unwrap();
+    let share_id = detail
+        .shares
+        .iter()
+        .find(|share| share.share.boarder_id == ana)
+        .unwrap()
+        .share
+        .id
+        .clone();
+    db.record_payment(&CreatePaymentInput {
+        bill_share_id: share_id,
+        amount_minor: 60_000,
+        paid_at: 1_760_000_000_000,
+        note: None,
+        payment_type: PaymentType::Online,
+        used_full_balance: true,
+    })
+    .unwrap();
+
+    let detail = db.bill_detail(&bill_id).unwrap().unwrap();
+    let payment = &detail.shares[0].state.payments[0].payment;
+    assert_eq!(payment.payment_type, PaymentType::Online);
+    assert!(payment.used_full_balance);
+    assert_eq!(payment.status_label(), "Paid – Online");
+
+    let json = db.export_backup_json().unwrap();
+    let restored = Treasurer::open_in_memory().unwrap();
+    restored.import_backup_json(&json).unwrap();
+
+    let detail = restored.bill_detail(&bill_id).unwrap().unwrap();
+    let payment = &detail.shares[0].state.payments[0].payment;
+    assert_eq!(payment.payment_type, PaymentType::Online);
+    assert!(payment.used_full_balance);
+}
+
+#[test]
 fn backup_validation_rejects_broken_payloads() {
     let (db, ana, ben) = setup();
     create_rent_bill(&db, &ana, &ben);
@@ -310,4 +584,114 @@ fn backup_validation_rejects_broken_payloads() {
     assert!(parse_backup_json(&missing_share.to_string()).is_err());
 
     assert!(parse_backup_json("not json").is_err());
+}
+
+#[test]
+fn a_payment_below_the_remaining_balance_is_rejected_and_writes_nothing() {
+    let (db, ana, ben) = setup();
+    let bill_id = create_rent_bill(&db, &ana, &ben);
+    let share_id = share_id_for(&db, &bill_id, &ana);
+
+    let error = db
+        .record_payment(&CreatePaymentInput {
+            bill_share_id: share_id.clone(),
+            amount_minor: 50_000,
+            paid_at: 1_760_000_000_000,
+            note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("Partial payments aren't allowed"),
+        "unexpected error: {error}"
+    );
+    assert!(error.contains("60.00") || error.contains("600.00"), "unexpected error: {error}");
+
+    let detail = db.bill_detail(&bill_id).unwrap().unwrap();
+    let share = detail
+        .shares
+        .iter()
+        .find(|share| share.share.id == share_id)
+        .unwrap();
+    assert!(share.state.payments.is_empty());
+    assert_eq!(detail.summary.applied_minor, 0);
+
+    // Exactly the remaining balance settles the share.
+    db.record_payment(&CreatePaymentInput {
+        bill_share_id: share_id.clone(),
+        amount_minor: 60_000,
+        paid_at: 1_760_000_000_000,
+        note: None,
+        payment_type: PaymentType::Cash,
+        used_full_balance: true,
+    })
+    .unwrap();
+
+    let share = db
+        .bill_detail(&bill_id)
+        .unwrap()
+        .unwrap()
+        .shares
+        .into_iter()
+        .find(|share| share.share.id == share_id)
+        .unwrap();
+    assert_eq!(share.state.status, ShareStatus::Paid);
+    assert_eq!(share.state.balance_minor, 0);
+}
+
+#[test]
+fn a_legacy_partial_share_can_only_be_completed() {
+    let (db, ana, ben) = setup();
+    let bill_id = create_rent_bill(&db, &ana, &ben);
+    let share_id = share_id_for(&db, &bill_id, &ana);
+
+    db.conn
+        .execute(
+            "INSERT INTO payments (id, bill_share_id, amount_minor, paid_at, note, change_minor,
+                                   change_returned_at, change_return_note, voided_at, void_reason,
+                                   created_at, payment_type, used_full_balance)
+             VALUES ('legacy-partial', ?1, 40000, 1760000000000, NULL, 0, NULL, NULL, NULL, NULL,
+                     1760000000000, 'cash', 0)",
+            [share_id.as_str()],
+        )
+        .unwrap();
+
+    let error = db
+        .record_payment(&CreatePaymentInput {
+            bill_share_id: share_id.clone(),
+            amount_minor: 10_000,
+            paid_at: 1_760_000_100_000,
+            note: None,
+            payment_type: PaymentType::Cash,
+            used_full_balance: false,
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("Partial payments aren't allowed"),
+        "unexpected error: {error}"
+    );
+
+    db.record_payment(&CreatePaymentInput {
+        bill_share_id: share_id.clone(),
+        amount_minor: 20_000,
+        paid_at: 1_760_000_100_000,
+        note: None,
+        payment_type: PaymentType::Cash,
+        used_full_balance: false,
+    })
+    .unwrap();
+
+    let share = db
+        .bill_detail(&bill_id)
+        .unwrap()
+        .unwrap()
+        .shares
+        .into_iter()
+        .find(|share| share.share.id == share_id)
+        .unwrap();
+    assert_eq!(share.state.status, ShareStatus::Paid);
+    assert_eq!(share.state.paid_minor, 60_000);
 }

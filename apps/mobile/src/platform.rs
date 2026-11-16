@@ -4,18 +4,18 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 #[cfg(target_os = "android")]
-static ANDROID_PATHS: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
+static ANDROID_PATHS: OnceLock<(PathBuf, PathBuf, PathBuf)> = OnceLock::new();
 
 #[cfg(target_os = "android")]
-pub fn set_android_paths(db: PathBuf, backups: PathBuf) {
-    let _ = ANDROID_PATHS.set((db, backups));
+pub fn set_android_paths(db: PathBuf, backups: PathBuf, updates: PathBuf) {
+    let _ = ANDROID_PATHS.set((db, backups, updates));
 }
 
 #[cfg(target_os = "android")]
 pub fn db_path() -> PathBuf {
     ANDROID_PATHS
         .get()
-        .map(|(db, _)| db.clone())
+        .map(|(db, _, _)| db.clone())
         .unwrap_or_else(|| PathBuf::from("/data/local/tmp/treasurer.db"))
 }
 
@@ -23,8 +23,16 @@ pub fn db_path() -> PathBuf {
 pub fn backup_dir() -> PathBuf {
     ANDROID_PATHS
         .get()
-        .map(|(_, backups)| backups.clone())
+        .map(|(_, backups, _)| backups.clone())
         .unwrap_or_else(std::env::temp_dir)
+}
+
+#[cfg(target_os = "android")]
+pub fn updates_dir() -> PathBuf {
+    ANDROID_PATHS
+        .get()
+        .map(|(_, _, updates)| updates.clone())
+        .unwrap_or_else(|| std::env::temp_dir().join("updates"))
 }
 
 #[cfg(not(target_os = "android"))]
@@ -35,6 +43,26 @@ pub fn db_path() -> PathBuf {
 #[cfg(not(target_os = "android"))]
 pub fn backup_dir() -> PathBuf {
     desktop_dir().join("backups")
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn updates_dir() -> PathBuf {
+    desktop_dir().join("updates")
+}
+
+/// Removes every file in the update folder: downloads never survive a restart,
+/// and a stale `.part` can never be resumed or installed.
+pub fn cleanup_updates_dir() {
+    let dir = updates_dir();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 #[cfg(not(target_os = "android"))]

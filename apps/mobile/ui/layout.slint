@@ -312,14 +312,25 @@ export component PillNav {
 export component MenuItem inherits Rectangle {
     in property <string> text;
     in property <string> icon;
+    // Small accent dot for an item with something waiting (Settings / update).
+    in property <bool> dot: false;
     callback clicked();
 
     height: 52px;
     border-radius: Theme.radius-md;
     background: touch.pressed ? #ffffff10 : transparent;
     accessible-role: button;
-    accessible-label: root.text;
+    accessible-label: root.dot ? root.text + ", update ready" : root.text;
     accessible-action-default => { root.clicked(); }
+
+    if root.dot : Rectangle {
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: Theme.accent;
+        x: parent.width - 14px;
+        y: (parent.height - self.height) / 2;
+    }
 
     HorizontalLayout {
         padding-left: 10px;
