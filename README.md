@@ -39,6 +39,10 @@ See [docs/installation.md](docs/installation.md) for building and installing the
 - **Share filters** — the bill's Shares list narrows by name, by All / Unpaid / Paid, and
   by All / Cash / Online. Selecting Cash or Online also shows how much that method
   collected on the bill, net of change.
+- **Share rows** — a boarder's name, status, balance and Pay action share one row on
+  wider phones. On narrow phones (under 380 px) the row restacks: the name takes the
+  full width over up to two lines, the status pill moves under it beside the balance,
+  and Pay spans the row, so names stay readable.
 - **Overpayment notice** — a payment that creates change opens a non-dismissing dialog
   naming the amount received and the excess, with a "Return change now" shortcut.
 - **Change tracking** — explicit Change to Return / Change Returned status on payment and
@@ -47,7 +51,10 @@ See [docs/installation.md](docs/installation.md) for building and installing the
   still have change outstanding.
 - **Undo payment** — reverse an accidental payment confirmation after a centered
   confirmation dialog. The original record stays in history marked Undone; balances,
-  statuses, and change recalculate from the remaining payments.
+  statuses, and change recalculate from the remaining payments. Payment rows keep their
+  own Undo; a share's payments are listed newest first in the Edit share sheet, which is
+  where a share's Undo lives now that share rows carry only Pay. Archived bills list
+  their payments read-only.
 - **Backup** — export all data as JSON through the share sheet; restore replaces all
   local data after confirmation and validation.
 - **Updates** — Settings checks GitHub for a newer release on launch, downloads it in the
@@ -63,7 +70,7 @@ cargo run -p treasurer-mobile --bin treasurer   # Preview the UI on the desktop
 cargo test -p treasurer-core                    # Run the core tests
 export PATH="$LOCALAPPDATA/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/windows-x86_64/bin:$PATH"
 (cd apps/mobile && x build --platform android --arch arm64 --format apk)   # Debug APK
-git tag v1.4.0+5 && git push origin v1.4.0+5        # Release APK + SHA-256 via GitHub Actions
+git tag v1.4.1+6 && git push origin v1.4.1+6        # Release APK + SHA-256 via GitHub Actions
 ```
 
 The Android build uses xbuild; there is no Gradle project. The tests cover money parsing,
