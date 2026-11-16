@@ -117,9 +117,17 @@ jobs:
       - name: Build the signed APK
         run: |
           cd apps/mobile
-          # xbuild invokes llvm-ar by name, but the NDK it unpacks under
-          # ~/.cache/x keeps its LLVM bin directory off PATH on the runner.
-          export PATH="$HOME/.cache/x/Android.ndk/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          # xbuild calls llvm-ar by name and its cached NDK is only a sysroot,
+          # so the archiver has to come from the NDK installed on the runner.
+          for bin in \
+            "${ANDROID_NDK_HOME:-}/toolchains/llvm/prebuilt/linux-x86_64/bin" \
+            "${ANDROID_NDK_ROOT:-}/toolchains/llvm/prebuilt/linux-x86_64/bin" \
+            "${ANDROID_SDK_ROOT:-}"/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin \
+            "${ANDROID_HOME:-}"/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin \
+            /usr/local/lib/android/sdk/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin; do
+            if [ -d "$bin" ]; then export PATH="$bin:$PATH"; fi
+          done
+          command -v llvm-ar || { echo "::error::llvm-ar not found on PATH"; exit 1; }
           x build --platform android --arch arm64 --release --format apk \
             --pem "$RUNNER_TEMP/release.pem"
 
