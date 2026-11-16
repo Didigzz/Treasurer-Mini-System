@@ -1,0 +1,156 @@
+name: Release APK
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse the release tag
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          name="${tag%%+*}"
+          code="${tag##*+}"
+          if [ "$name" = "$tag" ] || ! printf '%s' "$code" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "::error::Tag must look like v<name>+<version_code>, e.g. v1.4.0+5 (got $GITHUB_REF_NAME)"
+            exit 1
+          fi
+          if ! printf '%s' "$name" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version_name must be three dot-separated numbers (got $name)"
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Sync the version fields to the tag
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          set -euo pipefail
+          bash .github/scripts/sync-version.sh "$VERSION_NAME" "$VERSION_CODE"
+          grep -q "version_name: $VERSION_NAME" apps/mobile/manifest.yaml
+          grep -q "version_code: $VERSION_CODE" apps/mobile/manifest.yaml
+          grep -q "version = \"$VERSION_NAME\"" apps/mobile/Cargo.toml
+          grep -q "VERSION_CODE: i32 = $VERSION_CODE" apps/mobile/src/version.rs
+
+      - name: Commit the version bump to main
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Re-running a tag must not try to commit the same bump twice.
+          git fetch origin main
+          if git show origin/main:apps/mobile/src/version.rs | grep -q "VERSION_CODE: i32 = $VERSION_CODE"; then
+            echo "main already carries $VERSION_NAME+$VERSION_CODE; skipping the bump commit."
+            exit 0
+          fi
+
+          if git diff --quiet; then
+            echo "Version files already match the tag; nothing to commit."
+            exit 0
+          fi
+
+          git add apps/mobile/manifest.yaml apps/mobile/Cargo.toml apps/mobile/src/version.rs Cargo.lock
+          git commit -m "chore(release): $VERSION_NAME+$VERSION_CODE"
+          if ! git push origin HEAD:main; then
+            echo "::error::Could not push the version bump to main (has main moved, or does it require a pull request?). Update main and re-run this tag."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27
+          add-to-path: true
+
+      - name: Install xbuild
+        run: cargo install --git https://github.com/rust-mobile/xbuild.git
+
+      - name: Decode the signing key
+        run: |
+          printf '%s' "${{ secrets.ANDROID_SIGNING_PEM_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.pem"
+          test -s "$RUNNER_TEMP/release.pem" || { echo "::error::ANDROID_SIGNING_PEM_BASE64 is empty"; exit 1; }
+
+      - name: Build the signed APK
+        run: |
+          cd apps/mobile
+          x build --platform android --arch arm64 --release --format apk \
+            --pem "$RUNNER_TEMP/release.pem"
+
+      - name: Name, verify, and checksum the APK
+        id: apk
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          set -euo pipefail
+          # xbuild leaves an *-aligned.apk intermediate next to the signed APK.
+          built="$(find target/x/release/android -maxdepth 1 -name '*.apk' ! -name '*-aligned.apk' | head -n 1)"
+          if [ -z "$built" ]; then
+            echo "::error::xbuild produced no APK"
+            exit 1
+          fi
+
+          aapt2="$(find "${ANDROID_HOME}/build-tools" -name aapt2 2>/dev/null | sort -r | head -n 1 || true)"
+          if [ -n "$aapt2" ]; then
+            apk_code="$("$aapt2" dump badging "$built" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -n 1)"
+            if [ "$apk_code" != "$VERSION_CODE" ]; then
+              echo "::error::APK versionCode '$apk_code' does not match the tag's version_code '$VERSION_CODE'"
+              exit 1
+            fi
+          else
+            echo "::warning::aapt2 not found; skipping the APK versionCode check"
+          fi
+
+          out="boarding-house-treasurer-${VERSION_NAME}.apk"
+          cp "$built" "$out"
+          sha256sum "$out" > "$out.sha256"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boarding-house-treasurer-${{ steps.version.outputs.name }}
+          path: |
+            boarding-house-treasurer-*.apk
+            boarding-house-treasurer-*.apk.sha256
+
+      - name: Upload to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          apk="${{ steps.apk.outputs.path }}"
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$apk" "$apk.sha256" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$apk" "$apk.sha256" \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi
