@@ -1,5 +1,5 @@
 import { ScrollView } from "std-widgets.slint";
-import { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow, CalendarDay, ManageRow, UndoPickRow } from "models.slint";
+import { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow, SharePaymentRow, CalendarDay, ManageRow } from "models.slint";
 import { Theme, Tone, Icons, AppButton, ButtonKind, TextField, SelectField, Banner, Sheet, SheetOption, SectionHeader, StatusPill, CalendarSheet, OverpaymentDialog, UndoPaymentDialog, DetailRow, Segmented } from "components.slint";
 import { Responsive, TopBar, PillNav, MenuItem, ListCard, ListRow } from "layout.slint";
 import { DashboardScreen } from "screens/dashboard.slint";
@@ -10,10 +10,10 @@ import { NewBillScreen } from "screens/new-bill.slint";
 import { BillScreen } from "screens/bill.slint";
 import { LedgerScreen } from "screens/ledger.slint";
 
-export { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow, UndoPickRow, CalendarDay, ManageRow } from "models.slint";
+export { BillRow, BalanceRow, BoarderRow, ShareRow, PaymentRow, HistoryRow, TypeRow, PickRow, ShareSplitPreviewRow, SharePaymentRow, CalendarDay, ManageRow } from "models.slint";
 
 // Bottom sheets owned by the window so they cover the navigation too.
-enum SheetKind { none, pay, undo-pick, edit-share, currency, bill-type, boarder-actions, rename, delete-boarder, delete-bill, restore, calendar, manage-shares, return-change, payment-detail }
+enum SheetKind { none, pay, edit-share, currency, bill-type, boarder-actions, rename, delete-boarder, delete-bill, restore, calendar, manage-shares, return-change, payment-detail }
 
 // Screen ids (set from Rust): 0 Dashboard, 1 Boarders, 3 History, 4 Settings,
 // 10 Bill, 11 Boarder ledger, 12 New bill.
@@ -52,7 +52,7 @@ export component AppWindow inherits Window {
     in property <[PickRow]> picks: [];
     in property <[CalendarDay]> calendar-days: [];
     in property <[ManageRow]> manage-rows: [];
-    in property <[UndoPickRow]> undo-payments: [];
+    in property <[SharePaymentRow]> share-payments: [];
     in property <[string]> month-names: [];
     in property <[string]> manage-candidates: [];
 
@@ -141,7 +141,7 @@ export component AppWindow inherits Window {
     in property <string> undo-remaining: "";
     in property <string> undo-warning: "";
     in property <string> undo-error: "";
-    in property <string> undo-picker-subtitle: "";
+    in property <string> share-payments-caption: "";
 
     // Overpayment notice.
     in-out property <bool> overpay-shown: false;
@@ -217,9 +217,8 @@ export component AppWindow inherits Window {
     callback create-bill();
     callback pay-share(int);
     callback undo-payment(int);
-    callback undo-share-payment(int);
+    callback undo-sheet-payment(int);
     callback undo-detail-payment();
-    callback undo-pick(int);
     callback undo-confirm();
     callback undo-cancel();
     callback return-change(int);
@@ -584,13 +583,6 @@ export component AppWindow inherits Window {
                         root.begin-action();
                         root.undo-payment(i);
                     }
-                    undo-share(i) => {
-                        root.begin-action();
-                        root.undo-share-payment(i);
-                        if !root.message-error && !root.undo-shown && root.undo-payments.length > 0 {
-                            root.open-sheet(SheetKind.undo-pick, -1);
-                        }
-                    }
                     return-change(i) => {
                         root.begin-action();
                         root.return-change(i);
@@ -877,6 +869,100 @@ export component AppWindow inherits Window {
                 }
             }
 
+            // Payments recorded on this share, newest first. Undo lives here now
+            // that a share row no longer carries an action of its own.
+            VerticalLayout {
+                spacing: Theme.space-2;
+                SectionHeader {
+                    title: "Payments on this share";
+                    caption: root.share-payments-caption;
+                }
+                if root.share-payments.length == 0 : Text {
+                    text: "No payments recorded yet.";
+                    font-size: Theme.text-sub;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+                if root.share-payments.length > 0 : ScrollView {
+                    height: min(root.share-payments.length * 52px + 2px, 208px);
+                    VerticalLayout {
+                        ListCard {
+                            accessible-role: list;
+                            accessible-label: "Payments on this share";
+
+                            for row[i] in root.share-payments : Rectangle {
+                                height: 52px;
+                                background: transparent;
+                                accessible-role: list-item;
+                                accessible-label: row.title + ", " + row.subtitle + ", " + row.amount
+                                    + (row.undone ? ", undone" : ", active");
+
+                                if i > 0 : Rectangle {
+                                    x: Theme.space-3;
+                                    width: parent.width - Theme.space-3;
+                                    height: 1px;
+                                    background: Theme.divider;
+                                }
+
+                                HorizontalLayout {
+                                    padding-left: Theme.space-3;
+                                    padding-right: Theme.space-2;
+                                    spacing: Theme.space-2;
+
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        alignment: center;
+                                        spacing: 2px;
+                                        HorizontalLayout {
+                                            spacing: Theme.space-2;
+                                            Text {
+                                                text: row.title;
+                                                horizontal-stretch: 1;
+                                                font-size: Theme.text-sub;
+                                                font-weight: Theme.weight-semibold;
+                                                color: row.undone ? Theme.text-muted : Theme.text;
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: row.amount;
+                                                font-size: Theme.text-sub;
+                                                font-weight: Theme.weight-semibold;
+                                                color: row.undone ? Theme.text-muted : Theme.text;
+                                            }
+                                        }
+                                        Text {
+                                            text: row.subtitle;
+                                            font-size: Theme.text-caption;
+                                            color: Theme.text-muted;
+                                            overflow: elide;
+                                        }
+                                    }
+
+                                    if row.undoable : AppButton {
+                                        text: "Undo";
+                                        describe: "Undo " + row.amount + " payment from " + row.title;
+                                        icon: Icons.undo;
+                                        kind: ButtonKind.danger-soft;
+                                        compact: true;
+                                        clicked => {
+                                            root.begin-action();
+                                            root.undo-sheet-payment(i);
+                                        }
+                                    }
+                                    if row.undone : VerticalLayout {
+                                        alignment: center;
+                                        StatusPill {
+                                            text: "Undone";
+                                            tone: Tone.neutral;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             AppButton {
                 text: "Save share";
                 icon: Icons.check;
@@ -891,73 +977,6 @@ export component AppWindow inherits Window {
                 text: "Cancel";
                 kind: ButtonKind.secondary;
                 clicked => { root.close-sheet(); }
-            }
-        }
-
-        // ---- Multi-payment undo picker ----
-        if root.sheet == SheetKind.undo-pick : Sheet {
-            title: "Undo which payment?";
-            subtitle: root.undo-picker-subtitle;
-            error: root.sheet-error;
-            clear-error => { root.clear-error(); }
-            bottom-inset: root.bottom-inset;
-            dismiss => { root.close-sheet(); }
-
-            ListCard {
-                for row[i] in root.undo-payments : ListRow {
-                    show-divider: i > 0;
-                    label: row.title + ", " + row.amount + (row.newest ? ", newest" : "");
-                    clicked => {
-                        root.begin-action();
-                        root.undo-pick(i);
-                        if !root.message-error && root.undo-shown { root.close-sheet(); }
-                    }
-
-                    HorizontalLayout {
-                        padding-left: Theme.space-4;
-                        padding-right: Theme.space-3;
-                        padding-top: Theme.space-2;
-                        padding-bottom: Theme.space-2;
-                        spacing: Theme.space-2;
-
-                        VerticalLayout {
-                            horizontal-stretch: 1;
-                            alignment: center;
-                            spacing: 2px;
-                            Text {
-                                text: row.title;
-                                font-size: Theme.text-body;
-                                font-weight: Theme.weight-semibold;
-                                color: Theme.text;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: row.subtitle;
-                                font-size: Theme.text-sub;
-                                color: Theme.text-muted;
-                                overflow: elide;
-                            }
-                        }
-                        if row.newest : StatusPill {
-                            text: "Newest";
-                            tone: Tone.accent;
-                        }
-                        Text {
-                            text: row.amount;
-                            vertical-alignment: center;
-                            font-size: Theme.text-body;
-                            font-weight: Theme.weight-semibold;
-                            color: Theme.text;
-                        }
-                    }
-                }
-            }
-
-            Text {
-                text: "The original payment record stays in history marked Undone.";
-                font-size: Theme.text-caption;
-                color: Theme.text-muted;
-                wrap: word-wrap;
             }
         }
 

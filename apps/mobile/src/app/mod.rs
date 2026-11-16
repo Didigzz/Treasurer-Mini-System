@@ -110,8 +110,8 @@ struct App {
     /// Payment awaiting confirmation in the centered undo dialog.
     undo_payment_id: Option<String>,
     undo_share_id: Option<String>,
-    /// Payments listed in the multi-payment undo picker, newest first.
-    undo_picker_ids: Vec<String>,
+    /// Payment ids parallel to the Edit share sheet's list, newest first.
+    share_sheet_payment_ids: Vec<String>,
     /// Updater state shared with the worker thread, the last rendered status,
     /// and the timer that polls it.
     update: Option<crate::update::Shared>,
@@ -182,7 +182,7 @@ impl App {
             payment_share_ids: Vec::new(),
             undo_payment_id: None,
             undo_share_id: None,
-            undo_picker_ids: Vec::new(),
+            share_sheet_payment_ids: Vec::new(),
             update: None,
             update_state: UpdateStatus::Idle,
             update_last_checked: None,
@@ -220,10 +220,13 @@ impl App {
         self.cash_collected_minor = 0;
         self.online_collected_minor = 0;
         self.edit_share_id = None;
+        self.share_sheet_payment_ids.clear();
         let ui = self.ui();
         ui.set_shares(slint::ModelRc::default());
         ui.set_payments(slint::ModelRc::default());
         ui.set_share_preview(slint::ModelRc::default());
+        ui.set_share_payments(slint::ModelRc::default());
+        ui.set_share_payments_caption("".into());
         ui.set_share_filter("".into());
         ui.set_share_filter_mode(0);
         ui.set_share_type_filter(0);

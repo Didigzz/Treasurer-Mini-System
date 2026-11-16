@@ -18,7 +18,7 @@ use treasurer_core::selection::{selected_count, selection_state, toggle_select_a
 
 use super::calendar::{parse_hhmm, parse_iso_date, TARGET_CHANGE_RETURNED};
 use super::{progress, App};
-use crate::{AppWindow, ManageRow, PaymentRow, PickRow, ShareRow, ShareSplitPreviewRow, UndoPickRow};
+use crate::{AppWindow, ManageRow, PaymentRow, PickRow, SharePaymentRow, ShareRow, ShareSplitPreviewRow};
 
 pub(super) struct Pick {
     pub(super) boarder_id: String,
@@ -469,7 +469,6 @@ impl App {
                         _ => entry.status.label(),
                     }
                     .into(),
-                    settled: entry.balance == 0,
                     has_balance: entry.balance > 0,
                     has_change: entry.change > 0,
                     has_change_status: !change_status.is_empty(),
@@ -635,6 +634,7 @@ impl App {
         ui.set_share_edit_locked(self.detail_locked);
         ui.set_share_edit_archived(self.detail_archived);
         self.preview_share_split(&amount, &charge_text);
+        self.render_share_sheet_payments();
     }
 
     pub(super) fn preview_share_split(&mut self, amount_text: &str, charge_text: &str) {
@@ -921,37 +921,40 @@ impl App {
             self.refresh_ledger();
         }
         self.refresh_open_payment_detail();
+        // The Edit share sheet lists that share's payments, so keep it in step
+        // with whatever the change did to them.
+        if self.edit_share_id.is_some() {
+            self.render_share_sheet_payments();
+        }
     }
 
     fn set_undo_error(&self, text: impl Into<SharedString>) {
         self.ui().set_undo_error(text.into());
     }
 
-    /// Share-row Undo, offered when the share is Paid. One active payment opens
-    /// the confirmation dialog; several open the payment picker.
-    pub(super) fn open_undo_share(&mut self, index: usize) {
-        let Some(share_id) = self.display_share_ids.get(index).cloned() else {
-            return self.message("That share is no longer available. Go back and reopen the bill.");
+    /// Fills the Edit share sheet's payment list, newest first, so Undo can live
+    /// with the share it belongs to instead of on the share row.
+    fn render_share_sheet_payments(&mut self) {
+        let Some(share_id) = self.edit_share_id.clone() else {
+            return;
         };
         let context = match self.db.share_payment_context(&share_id) {
             Ok(Some(context)) => context,
-            Ok(None) => {
-                return self.message("That share is no longer available. Go back and reopen the bill.")
+            // The sheet is about to close or the bill was replaced: show no
+            // rows rather than rows that point at another share's payments.
+            Ok(None) | Err(_) => {
+                self.share_sheet_payment_ids.clear();
+                let ui = self.ui();
+                ui.set_share_payments(slint::ModelRc::default());
+                ui.set_share_payments_caption("".into());
+                return;
             }
-            Err(error) => return self.message(format!("{error:#}")),
         };
 
-        let mut active: Vec<&PaymentWithComputedChange> = context
-            .share
-            .state
-            .payments
-            .iter()
-            .filter(|item| item.payment.is_active())
-            .collect();
-        if active.is_empty() {
-            return self.message("There is no payment to undo for this share.");
-        }
-        active.sort_by(|a, b| {
+        // Same ordering the payment list uses everywhere: newest first.
+        let mut payments: Vec<&PaymentWithComputedChange> =
+            context.share.state.payments.iter().collect();
+        payments.sort_by(|a, b| {
             b.payment
                 .paid_at
                 .cmp(&a.payment.paid_at)
@@ -959,43 +962,43 @@ impl App {
                 .then(b.payment.id.cmp(&a.payment.id))
         });
 
-        if active.len() == 1 {
-            let payment_id = active[0].payment.id.clone();
-            return self.prepare_undo(&payment_id, &share_id);
-        }
-
-        self.undo_picker_ids = active
+        self.share_sheet_payment_ids = payments
             .iter()
             .map(|item| item.payment.id.clone())
             .collect();
-        self.undo_share_id = Some(share_id);
-        let rows: Vec<UndoPickRow> = active
+
+        let archived = self.detail_archived;
+        let rows: Vec<SharePaymentRow> = payments
             .iter()
-            .enumerate()
-            .map(|(position, item)| UndoPickRow {
+            .map(|item| SharePaymentRow {
                 title: money::format_datetime(item.payment.paid_at).into(),
                 subtitle: item.payment.payment_type.label().into(),
                 amount: money::format_money(item.payment.amount_minor, &self.currency).into(),
-                newest: position == 0,
+                undone: !item.payment.is_active(),
+                // Archived bills list their payments read-only; the rows come
+                // back to life (with Undo) once the bill is restored.
+                undoable: item.payment.is_active() && !archived,
             })
             .collect();
 
+        let caption = match rows.len() {
+            0 => String::new(),
+            1 => "1 payment, newest first".to_string(),
+            count => format!("{count} payments, newest first"),
+        };
+
         let ui = self.ui();
-        ui.set_undo_payments(ModelRc::new(VecModel::from(rows)));
-        ui.set_undo_picker_subtitle(
-            format!(
-                "Choose the payment to reverse for {}.",
-                context.share.display_name()
-            )
-            .into(),
-        );
+        ui.set_share_payments(ModelRc::new(VecModel::from(rows)));
+        ui.set_share_payments_caption(caption.into());
     }
 
-    pub(super) fn undo_pick(&mut self, index: usize) {
-        let Some(payment_id) = self.undo_picker_ids.get(index).cloned() else {
+    /// Undo from the Edit share sheet's payment list. The centered confirmation
+    /// dialog opens over the sheet, which stays put underneath.
+    pub(super) fn undo_share_payment(&mut self, index: usize) {
+        let Some(payment_id) = self.share_sheet_payment_ids.get(index).cloned() else {
             return self.message("That payment is no longer available.");
         };
-        let Some(share_id) = self.undo_share_id.clone() else {
+        let Some(share_id) = self.edit_share_id.clone() else {
             return self.message("That payment is no longer available.");
         };
         self.prepare_undo(&payment_id, &share_id);
@@ -1114,10 +1117,8 @@ impl App {
             Ok(()) => {
                 self.undo_payment_id = None;
                 self.undo_share_id = None;
-                self.undo_picker_ids.clear();
                 let ui = self.ui();
                 ui.set_undo_shown(false);
-                ui.set_undo_payments(slint::ModelRc::default());
                 self.refresh_after_change();
                 self.notify("Payment undone.");
             }
@@ -1128,7 +1129,6 @@ impl App {
     pub(super) fn undo_cancel(&mut self) {
         self.undo_payment_id = None;
         self.undo_share_id = None;
-        self.undo_picker_ids.clear();
         self.ui().set_undo_error("".into());
     }
 
@@ -1611,17 +1611,13 @@ pub(super) fn wire(app: &Rc<RefCell<App>>, ui: &AppWindow) {
     }
     {
         let app = app.clone();
-        ui.on_undo_share_payment(move |index| {
-            app.borrow_mut().open_undo_share(index.max(0) as usize)
+        ui.on_undo_sheet_payment(move |index| {
+            app.borrow_mut().undo_share_payment(index.max(0) as usize)
         });
     }
     {
         let app = app.clone();
         ui.on_undo_detail_payment(move || app.borrow_mut().open_undo_detail());
-    }
-    {
-        let app = app.clone();
-        ui.on_undo_pick(move |index| app.borrow_mut().undo_pick(index.max(0) as usize));
     }
     {
         let app = app.clone();

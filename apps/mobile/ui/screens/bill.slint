@@ -113,7 +113,6 @@ export component BillScreen {
 
     callback pay(int);
     callback undo-payment(int);
-    callback undo-share(int);
     callback return-change(int);
     callback archive-bill();
     callback delete-bill();
@@ -364,14 +363,6 @@ export component BillScreen {
                                 compact: true;
                                 kind: share.has-balance ? ButtonKind.primary : ButtonKind.secondary;
                                 clicked => { root.pay(i); }
-                            }
-                            if share.settled && !root.detail-archived : AppButton {
-                                text: "Undo payment";
-                                describe: "Undo payment for " + share.name + ", " + share.paid + " paid";
-                                icon: Icons.undo;
-                                kind: ButtonKind.danger-soft;
-                                compact: true;
-                                clicked => { root.undo-share(i); }
                             }
                         }
                     }

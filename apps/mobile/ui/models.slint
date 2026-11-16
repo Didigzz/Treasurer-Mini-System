@@ -47,8 +47,6 @@ export struct ShareRow {
     // "Unpaid", "Partial", "Paid – Cash" or "Paid – Online" on the bill screen;
     // the ledger keeps the plain "Paid".
     status: string,
-    // Balance is zero, so Undo can be offered without comparing label strings.
-    settled: bool,
     has-balance: bool,
     has-change: bool,
     has-change-status: bool,
@@ -61,6 +59,18 @@ export struct ShareSplitPreviewRow {
     // Final share + charge.
     amount: string,
     pinned: bool,
+}
+
+// One payment in the edit-share sheet's "Payments on this share" list.
+export struct SharePaymentRow {
+    // Date and time the payment was recorded.
+    title: string,
+    // "Cash" or "Online Payment".
+    subtitle: string,
+    amount: string,
+    undone: bool,
+    // False on archived bills, which list their payments read-only.
+    undoable: bool,
 }
 
 export struct PaymentRow {
@@ -103,14 +113,6 @@ export struct PickRow {
     name: string,
     selected: bool,
     amount: string,
-}
-
-// One payment choice in the multi-payment undo picker, newest first.
-export struct UndoPickRow {
-    title: string,
-    subtitle: string,
-    amount: string,
-    newest: bool,
 }
 
 // One cell of the calendar grid. Built in Rust from money::calendar_weeks.

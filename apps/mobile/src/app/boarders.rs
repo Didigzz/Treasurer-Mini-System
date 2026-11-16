@@ -117,7 +117,6 @@ impl App {
                     )
                     .into(),
                     status: item.state.status.label().into(),
-                    settled: item.state.balance_minor == 0,
                     has_balance: item.state.balance_minor > 0,
                     has_change: outstanding > 0,
                     has_change_status: !change_status.is_empty(),
