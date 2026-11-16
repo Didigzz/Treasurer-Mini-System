@@ -8,7 +8,8 @@ equally or with custom amounts, record payments and change to return, follow bal
 month and per boarder, and export/restore everything as a JSON file.
 
 All records live **only on the device** in a local SQLite database (`treasurer.db`). There
-are no accounts, cloud sync, or analytics.
+are no accounts, cloud sync, or analytics. The only network request the app makes is to
+GitHub, to check for and download a newer version.
 
 See [docs/installation.md](docs/installation.md) for building and installing the Android APK.
 
@@ -49,6 +50,9 @@ See [docs/installation.md](docs/installation.md) for building and installing the
   statuses, and change recalculate from the remaining payments.
 - **Backup** — export all data as JSON through the share sheet; restore replaces all
   local data after confirmation and validation.
+- **Updates** — Settings checks GitHub for a newer release on launch, downloads it in the
+  background, and hands it to Android's installer. Only one APK is kept, and the download
+  is verified against a published SHA-256.
 - **Dashboard** — selected-month totals, bill progress, and boarder balances with
   All / Unpaid / Paid / Change due filters.
 
@@ -59,6 +63,7 @@ cargo run -p treasurer-mobile --bin treasurer   # Preview the UI on the desktop
 cargo test -p treasurer-core                    # Run the core tests
 export PATH="$LOCALAPPDATA/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/windows-x86_64/bin:$PATH"
 (cd apps/mobile && x build --platform android --arch arm64 --format apk)   # Debug APK
+git tag v1.4.0+5 && git push origin v1.4.0+5        # Release APK + SHA-256 via GitHub Actions
 ```
 
 The Android build uses xbuild; there is no Gradle project. The tests cover money parsing,
@@ -91,6 +96,7 @@ transaction. Restore never merges.
 
 - Single boarding house, single treasurer, no login or app lock.
 - No cloud sync or online backup; export a JSON backup regularly.
+- Updates require the internet; nothing about the treasurer's records is uploaded.
 - Amounts are stored in integer minor units and displayed in the selected currency without
   conversion when the currency setting changes.
 - Bill money fields lock after the first active payment; corrections are made by undoing a
