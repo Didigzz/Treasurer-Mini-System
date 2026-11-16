@@ -1,8 +1,8 @@
 //! Compiled-in app version. One source of truth for the updater and the
 //! Settings footer; the Android manifest must agree (see the test below).
 
-pub const VERSION_NAME: &str = "1.4.1";
-pub const VERSION_CODE: i32 = 6;
+pub const VERSION_NAME: &str = "1.4.2";
+pub const VERSION_CODE: i32 = 7;
 pub const APP_LABEL: &str = "Boarding House Treasurer";
 
 /// "Boarding House Treasurer 1.4.1"
