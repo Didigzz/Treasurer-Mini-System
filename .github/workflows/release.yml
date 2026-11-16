@@ -19,6 +19,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Check this first: a missing secret should fail in seconds, before the
+      # toolchain setup and before the version bump is committed to main.
+      - name: Decode the signing key
+        env:
+          ANDROID_SIGNING_PEM_BASE64: ${{ secrets.ANDROID_SIGNING_PEM_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANDROID_SIGNING_PEM_BASE64" ]; then
+            echo "::error::ANDROID_SIGNING_PEM_BASE64 is not set. Add the base64 of release.pem (private key + certificate) as a repository secret; see docs/installation.md."
+            exit 1
+          fi
+          printf '%s' "$ANDROID_SIGNING_PEM_BASE64" | base64 -d > "$RUNNER_TEMP/release.pem" 2>/dev/null || {
+            echo "::error::ANDROID_SIGNING_PEM_BASE64 is not valid base64. Regenerate it with: base64 -w0 release.pem"
+            exit 1
+          }
+          if ! grep -q -- '-----BEGIN.*PRIVATE KEY-----' "$RUNNER_TEMP/release.pem"; then
+            echo "::error::The decoded ANDROID_SIGNING_PEM_BASE64 is not a PEM private key. It must contain release-key.pem followed by release-cert.pem."
+            exit 1
+          fi
+
       - name: Parse the release tag
         id: version
         run: |
@@ -93,11 +113,6 @@ jobs:
 
       - name: Install xbuild
         run: cargo install --git https://github.com/rust-mobile/xbuild.git
-
-      - name: Decode the signing key
-        run: |
-          printf '%s' "${{ secrets.ANDROID_SIGNING_PEM_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.pem"
-          test -s "$RUNNER_TEMP/release.pem" || { echo "::error::ANDROID_SIGNING_PEM_BASE64 is empty"; exit 1; }
 
       - name: Build the signed APK
         run: |
