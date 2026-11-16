@@ -2,8 +2,8 @@ android:
   icon: "icon.png"
   manifest:
     package: com.anonymous.mybettertapp
-    version_code: 5
-    version_name: 1.4.0
+    version_code: 6
+    version_name: 1.4.1
     uses_permission:
       - name: android.permission.INTERNET
       - name: android.permission.REQUEST_INSTALL_PACKAGES

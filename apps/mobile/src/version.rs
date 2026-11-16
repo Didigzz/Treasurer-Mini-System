@@ -1,11 +1,11 @@
 //! Compiled-in app version. One source of truth for the updater and the
 //! Settings footer; the Android manifest must agree (see the test below).
 
-pub const VERSION_NAME: &str = "1.4.0";
-pub const VERSION_CODE: i32 = 5;
+pub const VERSION_NAME: &str = "1.4.1";
+pub const VERSION_CODE: i32 = 6;
 pub const APP_LABEL: &str = "Boarding House Treasurer";
 
-/// "Boarding House Treasurer 1.4.0"
+/// "Boarding House Treasurer 1.4.1"
 pub fn version_label() -> String {
     format!("{APP_LABEL} {VERSION_NAME}")
 }

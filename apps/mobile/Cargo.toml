@@ -1,6 +1,6 @@
 [package]
 name = "treasurer-mobile"
-version = "1.4.0"
+version = "1.4.1"
 edition.workspace = true
 license.workspace = true
 description = "Boarding house treasurer Slint app"
@@ -36,7 +36,7 @@ slint = { version = "1.18", default-features = false, features = ["std", "compat
 [package.metadata.android]
 package = "com.anonymous.mybettertapp"
 apk_name = "boarding-house-treasurer"
-version_code = 5
-version_name = "1.4.0"
+version_code = 6
+version_name = "1.4.1"
 label = "Boarding House Treasurer"
 build_targets = ["aarch64-linux-android"]
