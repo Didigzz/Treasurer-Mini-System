@@ -49,10 +49,8 @@ pub fn parse_money_to_minor(input: &str) -> Option<i64> {
         return None;
     }
 
-    if trimmed.contains(',') {
-        if !valid_grouped(trimmed) {
-            return None;
-        }
+    if trimmed.contains(',') && !valid_grouped(trimmed) {
+        return None;
     }
 
     let normalized = trimmed.replace(',', "");
@@ -81,7 +79,7 @@ pub fn parse_money_to_minor(input: &str) -> Option<i64> {
     };
 
     let minor = whole.checked_mul(MINOR_UNITS_PER_UNIT)?.checked_add(cents)?;
-    if minor < 0 || minor > MAX_AMOUNT_MINOR {
+    if !(0..=MAX_AMOUNT_MINOR).contains(&minor) {
         return None;
     }
 
@@ -184,7 +182,7 @@ fn group_thousands(value: i64) -> String {
     let digits = value.to_string();
     let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
     for (index, ch) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             grouped.push(',');
         }
         grouped.push(ch);

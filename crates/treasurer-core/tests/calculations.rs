@@ -410,7 +410,7 @@ fn bill_counts_paid_shares_with_change_separately() {
 
 #[test]
 fn filters_classify_shares_independently() {
-    let shares = vec![
+    let shares = [
         share("a", "Ana", 25000, &[payment("p1", 30000, 1000)]),
         share("b", "Ben", 25000, &[payment("p2", 10000, 2000)]),
     ];
@@ -481,7 +481,7 @@ fn history_bill(id: &str, year: i32, month: i32, created_at: i64) -> HistoryBill
 
 #[test]
 fn history_filter_matches_every_bill_by_default() {
-    let bills = vec![
+    let bills = [
         history_bill("a", 2026, 10, 1),
         history_bill("b", 2026, 11, 2),
     ];
@@ -492,7 +492,7 @@ fn history_filter_matches_every_bill_by_default() {
 
 #[test]
 fn history_filter_filters_by_month_and_type() {
-    let bills = vec![
+    let bills = [
         history_bill("a", 2026, 10, 1),
         history_bill("b", 2026, 11, 2),
     ];
@@ -597,7 +597,7 @@ fn latest_active_payment_type_follows_the_newest_active_payment() {
 
     let cash = with_change(typed_payment("cash", 1_000, 100, PaymentType::Cash), 0);
     assert_eq!(
-        latest_active_payment_type(&[cash.clone()]),
+        latest_active_payment_type(std::slice::from_ref(&cash)),
         Some(PaymentType::Cash)
     );
 

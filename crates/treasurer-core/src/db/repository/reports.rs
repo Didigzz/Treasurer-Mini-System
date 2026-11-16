@@ -248,7 +248,7 @@ impl Treasurer {
                 })
             })
             .collect();
-        payments.sort_by(|a, b| b.payment.payment.paid_at.cmp(&a.payment.payment.paid_at));
+        payments.sort_by_key(|b| std::cmp::Reverse(b.payment.payment.paid_at));
 
         Ok(Some(BoarderLedger {
             boarder,

@@ -251,7 +251,7 @@ impl App {
                 ));
             }
         }
-        payment_rows.sort_by(|a, b| b.0.cmp(&a.0));
+        payment_rows.sort_by_key(|b| std::cmp::Reverse(b.0));
         self.payment_ids = payment_rows.iter().map(|(_, _, id, _)| id.clone()).collect();
         self.payment_share_ids = payment_rows
             .iter()
