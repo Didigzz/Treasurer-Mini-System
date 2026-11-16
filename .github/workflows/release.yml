@@ -117,6 +117,9 @@ jobs:
       - name: Build the signed APK
         run: |
           cd apps/mobile
+          # xbuild invokes llvm-ar by name, but the NDK it unpacks under
+          # ~/.cache/x keeps its LLVM bin directory off PATH on the runner.
+          export PATH="$HOME/.cache/x/Android.ndk/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           x build --platform android --arch arm64 --release --format apk \
             --pem "$RUNNER_TEMP/release.pem"
 
