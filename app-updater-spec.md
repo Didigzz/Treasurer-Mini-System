@@ -447,25 +447,25 @@ On tapping **Install update**:
 
 ### 7.3 Handing the file to Android
 
-Preferred mechanism — `PackageInstaller` session (no Java/Kotlin class required):
+Shipped mechanism — `MediaStore` copy plus `Intent.ACTION_VIEW` (no Java/Kotlin class required):
 
-- Obtain the `JavaVM` and activity global reference once in `android_main` (alongside the path
-  setup) and expose them through `platform` accessors, mirroring `set_android_paths`.
-- Create a session with `PackageInstaller.SessionParams(MODE_FULL_INSTALL)`, `setAppPackageName`
-  is **not** set (this is an in-place update of the same package), write the APK bytes with
-  `Session.openWrite`, `fsync`, `close`, then `commit(intentSender)`.
-- `intentSender` comes from `PendingIntent.getActivity` targeting the app's launcher activity with
-  `FLAG_MUTABLE | FLAG_UPDATE_CURRENT`; on status callback the app re-reads
-  `PackageInstaller.EXTRA_STATUS` and maps it to `InstallFailed` / success.
-- This path needs the JNI calls, method IDs, and status constants spelled out in one
-  `install.rs` module; keep every `unsafe` block in that file and document the object lifetimes.
-
-Fallback mechanism — if the session status receiver proves unreliable on the target device:
-
-- Add a `FileProvider` (needs a `<provider>` manifest entry plus `res/xml/file_paths.xml`) and
-  launch `Intent.ACTION_VIEW` with the content URI, mime `application/vnd.android.package-archive`,
-  `FLAG_GRANT_READ_URI_PERMISSION`.
-- Whichever path ships, there must be exactly one, and the spec's acceptance criteria apply to it.
+- A `PackageInstaller` session does **not** work for this app. `commit()` only delivers
+  `PackageInstaller.STATUS_PENDING_USER_ACTION` to the status receiver, and the app must start the
+  confirmation Intent found in `Intent.EXTRA_INTENT` itself (see AOSP's `InstallApkSessionApi`
+  sample). That needs a `BroadcastReceiver`, or an activity `onNewIntent`, plus a `FileProvider`
+  for the content URI. xbuild produces an APK with no `classes.dex`, so neither can be shipped.
+  Committing a session without handling that status shows nothing at all and reports no error.
+- Copy the verified APK into `MediaStore.Downloads` (`is_pending` = 1 while writing, 0 after). This
+  is the only system content provider that can hand the installer the bytes; the app's cached file
+  is app-private, and `file://` URIs are rejected from Android 7 on.
+- Launch `Intent.ACTION_VIEW` with `setDataAndType(uri, "application/vnd.android.package-archive")`,
+  `FLAG_GRANT_READ_URI_PERMISSION`, and `FLAG_ACTIVITY_NEW_TASK`. Android then shows its own
+  installer UI, which is the confirmation the user sees.
+- Before writing, delete any row with the same `_display_name`, so Downloads holds at most one
+  update file. A failed hand-off deletes its row again.
+- `MediaStore.Downloads` is API 29+; below that the hand-off reports
+  "Installing from inside the app needs Android 10 or newer" instead of failing silently.
+- Keep every `unsafe` block in `install.rs` and document the object lifetimes.
 
 ### 7.4 After the install
 

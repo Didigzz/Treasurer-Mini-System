@@ -114,6 +114,10 @@ installer handoff). Nothing about the treasurer's records is uploaded. The app n
 installs anything silently: Android always shows its own confirmation, and Android 8+
 requires the user to allow "Install unknown apps" for this app once.
 
+Tapping **Install update** copies the verified APK into the phone's Downloads collection
+and opens it with the system installer, which is why the handoff needs Android 10 (API 29)
+or newer. On older phones, download the APK from the release page and open it by hand.
+
 ## Release builds and signing
 
 Android only installs an update in place when the new APK is signed with the same key as
