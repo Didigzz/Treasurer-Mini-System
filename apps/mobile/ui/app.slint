@@ -884,74 +884,85 @@ export component AppWindow inherits Window {
                     wrap: word-wrap;
                 }
                 if root.share-payments.length > 0 : ScrollView {
-                    height: min(root.share-payments.length * 52px + 2px, 208px);
+                    // A row is two text lines plus the 40px Undo button, so the
+                    // bounded list is a whole number of rows tall: two rows, then
+                    // it scrolls. Keeps the sheet shorter than the old 52px rows.
+                    height: min(root.share-payments.length * 84px + 2px, 170px);
                     VerticalLayout {
                         ListCard {
                             accessible-role: list;
                             accessible-label: "Payments on this share";
 
                             for row[i] in root.share-payments : Rectangle {
-                                height: 52px;
+                                height: 84px;
                                 background: transparent;
                                 accessible-role: list-item;
                                 accessible-label: row.title + ", " + row.subtitle + ", " + row.amount
-                                    + (row.undone ? ", undone" : ", active");
+                                    + (row.undone ? ", undone" : ", active")
+                                    + (row.undoable ? ", undo available" : "");
 
                                 if i > 0 : Rectangle {
-                                    x: Theme.space-3;
-                                    width: parent.width - Theme.space-3;
+                                    x: Theme.space-4;
+                                    width: parent.width - Theme.space-4;
                                     height: 1px;
                                     background: Theme.divider;
                                 }
 
-                                HorizontalLayout {
-                                    padding-left: Theme.space-3;
+                                VerticalLayout {
+                                    padding-left: Theme.space-4;
                                     padding-right: Theme.space-2;
-                                    spacing: Theme.space-2;
+                                    padding-top: 10px;
+                                    padding-bottom: 10px;
+                                    spacing: Theme.space-1;
 
-                                    VerticalLayout {
-                                        horizontal-stretch: 1;
+                                    // Date left, money right: the two facts the
+                                    // row is scanned for get the full width.
+                                    HorizontalLayout {
                                         alignment: center;
-                                        spacing: 2px;
-                                        HorizontalLayout {
-                                            spacing: Theme.space-2;
-                                            Text {
-                                                text: row.title;
-                                                horizontal-stretch: 1;
-                                                font-size: Theme.text-sub;
-                                                font-weight: Theme.weight-semibold;
-                                                color: row.undone ? Theme.text-muted : Theme.text;
-                                                overflow: elide;
-                                            }
-                                            Text {
-                                                text: row.amount;
-                                                font-size: Theme.text-sub;
-                                                font-weight: Theme.weight-semibold;
-                                                color: row.undone ? Theme.text-muted : Theme.text;
-                                            }
+                                        spacing: Theme.space-2;
+                                        Text {
+                                            text: row.title;
+                                            horizontal-stretch: 1;
+                                            vertical-alignment: center;
+                                            font-size: Theme.text-sub;
+                                            font-weight: Theme.weight-semibold;
+                                            color: row.undone ? Theme.text-muted : Theme.text;
+                                            overflow: elide;
                                         }
                                         Text {
+                                            text: row.amount;
+                                            vertical-alignment: center;
+                                            font-size: Theme.text-sub;
+                                            font-weight: Theme.weight-semibold;
+                                            color: row.undone ? Theme.text-muted : Theme.text;
+                                        }
+                                    }
+
+                                    // Undo shares the payment-type line so the
+                                    // button never squeezes the date or amount.
+                                    HorizontalLayout {
+                                        alignment: center;
+                                        spacing: Theme.space-2;
+                                        Text {
                                             text: row.subtitle;
+                                            horizontal-stretch: 1;
+                                            vertical-alignment: center;
                                             font-size: Theme.text-caption;
                                             color: Theme.text-muted;
                                             overflow: elide;
                                         }
-                                    }
-
-                                    if row.undoable : AppButton {
-                                        text: "Undo";
-                                        describe: "Undo " + row.amount + " payment from " + row.title;
-                                        icon: Icons.undo;
-                                        kind: ButtonKind.danger-soft;
-                                        compact: true;
-                                        clicked => {
-                                            root.begin-action();
-                                            root.undo-sheet-payment(i);
+                                        if row.undoable : AppButton {
+                                            text: "Undo";
+                                            describe: "Undo " + row.amount + " payment from " + row.title;
+                                            icon: Icons.undo;
+                                            kind: ButtonKind.danger-soft;
+                                            compact: true;
+                                            clicked => {
+                                                root.begin-action();
+                                                root.undo-sheet-payment(i);
+                                            }
                                         }
-                                    }
-                                    if row.undone : VerticalLayout {
-                                        alignment: center;
-                                        StatusPill {
+                                        if row.undone : StatusPill {
                                             text: "Undone";
                                             tone: Tone.neutral;
                                         }
